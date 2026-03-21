@@ -17,8 +17,9 @@ This directory is the source of truth for the first public version of `vibegram`
 11. [Go Guidance](./go-guidance.md)
 12. [OpenAI Guidance](./openai-guidance.md)
 13. [Lessons from ccgram](./ccgram-lessons.md)
-14. [Testing and Evals](./testing-evals.md)
-15. [Implementation Plan](./implementation-plan.md)
+14. [Diagrams](./diagrams.md)
+15. [Testing and Evals](./testing-evals.md)
+16. [Implementation Plan](./implementation-plan.md)
 
 ## Supporting artifacts
 

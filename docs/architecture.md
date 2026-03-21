@@ -41,6 +41,8 @@
        hooks -> transcript -> PTY              transcript -> PTY
 ```
 
+For the maintained visual set used across the repo, see [Diagrams](./diagrams.md).
+
 ## Major components
 
 ### 1. Runner
