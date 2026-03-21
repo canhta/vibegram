@@ -34,6 +34,9 @@ Recommended fields:
 - `last_role_used`
 - `escalation_state`
 - `linked_decision_refs`
+- `sandbox_profile`
+- `pending_elevation`
+- `evidence_refs`
 
 ## Why not transcript-only
 
@@ -98,3 +101,4 @@ human teaches system
 The system should not auto-edit its own rules after one interaction.
 
 For the current OpenAI-specific guidance that shaped this memory model, see [OpenAI Guidance](./openai-guidance.md).
+For the trust and provenance model that shaped the snapshot, see [Trust Boundaries](./trust-boundaries.md).

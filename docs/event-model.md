@@ -45,6 +45,12 @@ done
 
 ## Event payload guidelines
 
+Every normalized event should preserve provenance.
+
+Minimum v1 field:
+
+- `source_class`: `trusted_policy` | `trusted_system` | `untrusted_evidence`
+
 ### `phase_changed`
 
 Use when the work meaningfully changes phase:
@@ -91,6 +97,7 @@ Keep compact:
   "run_id": "run_01JXYZ",
   "provider": "codex",
   "event_type": "blocked",
+  "source_class": "untrusted_evidence",
   "severity": "warning",
   "timestamp": "2026-03-21T10:00:00Z",
   "summary": "Agent is blocked on a missing environment variable.",

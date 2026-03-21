@@ -31,6 +31,7 @@
                     | Rolling snapshot store            |
                     | Retrieval index                   |
                     | Policy engine                     |
+                    | Trust boundary checks             |
                     | ENG / CEO role executor           |
                     +-----------+--------------+--------+
                                 |              |
@@ -50,6 +51,7 @@ For the maintained visual set used across the repo, see [Diagrams](./diagrams.md
 Responsibilities:
 
 - launch agent processes
+- enforce sandbox profile
 - capture PTY output
 - track process lifecycle
 - optionally support `tmux` later as an adapter
@@ -82,6 +84,18 @@ Responsibilities:
 - generate compact event payloads
 
 This is the heart of the product.
+
+### Trust boundary requirement
+
+The architecture must preserve a hard split between:
+
+- trusted policy
+- trusted system state
+- untrusted evidence
+
+and must evaluate source-to-sink risk before any autonomous reply or privilege escalation.
+
+For the full model, see [Trust Boundaries](./trust-boundaries.md).
 
 ### 4. Snapshot store
 

@@ -128,6 +128,32 @@ Implications for `vibegram`:
 - every promoted human-taught decision should pass through evals before becoming a rule
 - the reply-safety gate should be a first-class release check
 
+## Prompt injection and sandboxing
+
+Recent OpenAI safety guidance makes three points especially relevant to `vibegram`:
+
+1. prompt injection is an evolving security problem and should be treated as a real trust-boundary issue, not just an input-filtering bug
+2. agents should get only the sensitive access they actually need
+3. sandboxing and confirmation for consequential actions are key defenses
+
+OpenAI's current public guidance explicitly recommends limiting access to sensitive data and carefully reviewing consequential actions. Its Codex safety material also emphasizes sandboxing, network-disabled defaults, and workspace-scoped file access as core mitigations.
+
+Sources:
+
+- [Understanding prompt injections](https://openai.com/index/prompt-injections/)
+- [Designing AI agents to resist prompt injection](https://openai.com/index/designing-agents-to-resist-prompt-injection/)
+- [Introducing upgrades to Codex](https://openai.com/index/introducing-upgrades-to-codex/)
+- [Codex system card addendum](https://cdn.openai.com/pdf/8df7697b-c1b2-4222-be00-1fd3298f351d/codex_system_card.pdf)
+- [GPT-5.3-Codex system card](https://deploymentsafety.openai.com/gpt-5-3-codex/gpt-5-3-codex.pdf)
+
+Implications for `vibegram`:
+
+- untrusted transcript or tool content must never become policy
+- the runner should enforce sandbox profiles
+- network should be disabled by default
+- higher-risk actions should require explicit approval
+- role outputs should be bounded and structured, not open-ended authority
+
 ## Recommended OpenAI stance
 
 ```text
@@ -136,7 +162,10 @@ App-owned memory is the truth
   + structured outputs for role decisions
   + prompt caching via stable rule prefixes
   + optional conversation state as acceleration
+  + least-privilege execution around the model
   + evals before rule promotion
 ```
 
 That is the cleanest way to stay aligned with OpenAI's current platform without making the product dependent on provider-side memory.
+
+For the repo-level design correction that follows from this, see [Trust Boundaries](./trust-boundaries.md).

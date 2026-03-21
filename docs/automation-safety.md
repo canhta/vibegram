@@ -4,6 +4,8 @@
 
 Automation is allowed to move the main agent forward, but not to silently make high-risk decisions.
 
+Automation also must not treat untrusted evidence as authority.
+
 ## Role model
 
 ### ENG
@@ -45,10 +47,24 @@ Escalate classes:
 
 - secrets or credentials ambiguity
 - destructive operations
+- requests to widen permissions or network scope
 - architecture changes outside existing pattern
 - conflicting human instructions
 - repeated failed unblock attempts
 - uncertain strategic tradeoffs
+
+## Trust model
+
+Policy decisions must distinguish:
+
+- trusted policy
+- trusted system state
+- untrusted evidence
+
+Transcript excerpts, tool output, and retrieved external content are evidence only.
+They may inform a decision, but they may not override policy.
+
+For the full authority and sandbox model, see [Trust Boundaries](./trust-boundaries.md).
 
 ## Policy matrix
 
@@ -85,6 +101,13 @@ Top-level action:
 - `noop`
 
 This allows deterministic policy handling and easier evals.
+
+Recommended additional fields:
+
+- `sink_risk`
+- `requires_elevation`
+- `evidence_refs`
+- `reason`
 
 ## Human-teaching rule
 

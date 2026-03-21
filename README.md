@@ -91,6 +91,7 @@ The main agent should keep moving without forcing the human to babysit every cla
 - [Go Guidance](./docs/go-guidance.md)
 - [OpenAI Guidance](./docs/openai-guidance.md)
 - [Lessons from ccgram](./docs/ccgram-lessons.md)
+- [Trust Boundaries](./docs/trust-boundaries.md)
 - [Diagrams](./docs/diagrams.md)
 - [Testing and Evals](./docs/testing-evals.md)
 - [Implementation Plan](./docs/implementation-plan.md)

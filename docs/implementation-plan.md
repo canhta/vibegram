@@ -63,6 +63,7 @@ docs/
 
 - [ ] Write runner tests for process launch, PTY capture, shutdown, and failure detection.
 - [ ] Implement direct PTY runner.
+- [ ] Implement sandbox profiles with least-privilege defaults.
 - [ ] Expose a clean interface for provider-specific launch args.
 - [ ] Keep `tmux` out of the critical path.
 
@@ -88,6 +89,7 @@ docs/
 - Create: `internal/events/normalize_test.go`
 
 - [ ] Define the balanced normalized event set.
+- [ ] Preserve trust provenance on normalized events.
 - [ ] Write table-driven tests for all supported event mappings.
 - [ ] Implement dedupe keys and replay protection.
 - [ ] Verify one logical event becomes one normalized event.
@@ -149,6 +151,7 @@ docs/
 
 - [ ] Write tests for safe auto-reply, escalation, cooldown, and retry ceiling.
 - [ ] Implement role selection and decision handling.
+- [ ] Implement source-to-sink risk checks before autonomous replies.
 - [ ] Verify repeated blockers escalate instead of looping.
 
 ## Task 11: Human teaching capture

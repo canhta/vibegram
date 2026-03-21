@@ -59,6 +59,8 @@ Recommended config:
 - state dir
 - log level
 - automation mode
+- sandbox profile defaults
+- allowlisted network destinations
 
 ## Observability
 
@@ -80,6 +82,18 @@ On daemon restart:
 5. avoid replaying stale events
 
 The system should prefer correctness over fancy self-healing.
+
+## Sandbox requirement
+
+The runtime must enforce least privilege by default:
+
+- workspace-scoped file access
+- network disabled by default
+- explicit elevation path for higher-risk operations
+
+Exact implementation can evolve, but the product requirement is fixed.
+
+For the design rationale, see [Trust Boundaries](./trust-boundaries.md).
 
 ## Go implementation notes
 

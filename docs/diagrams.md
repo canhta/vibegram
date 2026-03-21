@@ -196,3 +196,33 @@ Default operational stance:
 - `systemd` owns uptime
 - direct runner is the normal path
 - `tmux` is optional, not required
+
+## 9. Trust Boundary and Elevation
+
+```mermaid
+flowchart TD
+    TP["Trusted policy<br/>rules, config, human-approved decisions"]
+    TS["Trusted system state<br/>session, run, counters, routing"]
+    UE["Untrusted evidence<br/>transcript, tool output, files, web content"]
+
+    POLICY["Policy engine"]
+    CHECK["source-sink risk check"]
+    SANDBOX["sandbox profile"]
+    ACTION{"reply, escalate, or noop"}
+
+    HUMAN["Human approval"]
+    MAIN["Main agent"]
+
+    TP --> POLICY
+    TS --> POLICY
+    UE --> POLICY
+    POLICY --> CHECK --> SANDBOX --> ACTION
+    ACTION --> MAIN
+    ACTION --> HUMAN
+```
+
+Design rule:
+
+- untrusted evidence may influence reasoning
+- it may not become authority
+- elevated permissions require explicit approval or static policy
