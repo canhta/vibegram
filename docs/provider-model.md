@@ -82,3 +82,5 @@ Additional providers should be accepted only if they can satisfy:
 - detectable lifecycle
 - stable stdin/stdout or PTY behavior
 - predictable resume semantics
+
+For the concrete lessons that informed this provider split, see [Lessons from ccgram](./ccgram-lessons.md).

@@ -13,8 +13,12 @@ This directory is the source of truth for the first public version of `vibegram`
 7. [Session Context](./session-context.md)
 8. [Automation Safety](./automation-safety.md)
 9. [Runtime and Ops](./runtime-ops.md)
-10. [Testing and Evals](./testing-evals.md)
-11. [Implementation Plan](./implementation-plan.md)
+10. [Telegram Research](./telegram-research.md)
+11. [Go Guidance](./go-guidance.md)
+12. [OpenAI Guidance](./openai-guidance.md)
+13. [Lessons from ccgram](./ccgram-lessons.md)
+14. [Testing and Evals](./testing-evals.md)
+15. [Implementation Plan](./implementation-plan.md)
 
 ## Supporting artifacts
 

@@ -166,3 +166,8 @@ logs/
 - retries are bounded
 - automation stops and escalates when uncertainty rises
 - the daemon owns orchestration, not recovery magic
+
+## Reference system note
+
+The current `ccgram` codebase is a useful reference for message shaping, provider asymmetry, and Telegram-safe fallback behavior.
+For the distilled lessons we want to preserve and the couplings we explicitly want to avoid, see [Lessons from ccgram](./ccgram-lessons.md).

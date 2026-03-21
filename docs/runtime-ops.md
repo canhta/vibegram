@@ -80,3 +80,7 @@ On daemon restart:
 5. avoid replaying stale events
 
 The system should prefer correctness over fancy self-healing.
+
+## Go implementation notes
+
+The current recommendation for the daemon implementation is Go. For the detailed language guidance behind that recommendation, see [Go Guidance](./go-guidance.md).

@@ -51,6 +51,10 @@ The main agent should keep moving without forcing the human to babysit every cla
 - [Session Context](./docs/session-context.md)
 - [Automation Safety](./docs/automation-safety.md)
 - [Runtime and Ops](./docs/runtime-ops.md)
+- [Telegram Research](./docs/telegram-research.md)
+- [Go Guidance](./docs/go-guidance.md)
+- [OpenAI Guidance](./docs/openai-guidance.md)
+- [Lessons from ccgram](./docs/ccgram-lessons.md)
 - [Testing and Evals](./docs/testing-evals.md)
 - [Implementation Plan](./docs/implementation-plan.md)
 

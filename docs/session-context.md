@@ -96,3 +96,5 @@ human teaches system
 ```
 
 The system should not auto-edit its own rules after one interaction.
+
+For the current OpenAI-specific guidance that shaped this memory model, see [OpenAI Guidance](./openai-guidance.md).

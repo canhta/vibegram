@@ -12,6 +12,9 @@ Telegram Forum topics are enough for the product we want:
 
 They are not enough for a rich in-topic app. That is fine. `vibegram` is a control-room product, not a Mini App product.
 
+For the verified platform constraints behind this design, see [Telegram Research](./telegram-research.md).
+For the practical shaping lessons taken from the current reference implementation, see [Lessons from ccgram](./ccgram-lessons.md).
+
 ## Supported Telegram behavior
 
 Realistic Telegram constraints for this design:
@@ -21,6 +24,12 @@ Realistic Telegram constraints for this design:
 - callback payloads are capped at 64 bytes
 - bots can edit messages and use inline keyboards
 - forum workflows are good for routing, not for heavy UI state
+
+Additional platform facts that matter:
+
+- every forum has a non-deletable General topic with `id=1`
+- non-General topics are message threads, not separate chats
+- Telegram Web Apps in inline buttons are private-chat only
 
 ## Topic split
 
@@ -61,6 +70,12 @@ General topic -> create session
 ```
 
 Session topics should not be deleted just because a run exits. The topic represents the app session, not the child process.
+
+The General topic should be treated specially:
+
+- it is always present
+- it is not just "topic zero"
+- it is the control room for the whole bot, not another session room
 
 ## Message classes
 
