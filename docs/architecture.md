@@ -170,6 +170,8 @@ state/
     <session_id>.json
   runs/
     <run_id>.json
+  snapshots/
+    <session_id>.json
   offsets/
     claude-<run_id>.json
     codex-<run_id>.json

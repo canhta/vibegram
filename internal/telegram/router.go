@@ -28,7 +28,7 @@ func (r Router) Route(event events.NormalizedEvent) []Destination {
 	switch event.EventType {
 	case events.EventTypeSessionStarted:
 		return []Destination{general}
-	case events.EventTypeDone, events.EventTypeFailed, events.EventTypeApprovalNeeded:
+	case events.EventTypeBlocked, events.EventTypeDone, events.EventTypeFailed, events.EventTypeApprovalNeeded:
 		return []Destination{general, session}
 	default:
 		return []Destination{session}

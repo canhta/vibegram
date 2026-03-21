@@ -46,6 +46,13 @@ just to supervise agents from Telegram.
 /etc/vibegram/          config and environment
 ```
 
+The checked-in `systemd` unit now uses `StateDirectory=vibegram` and pins:
+
+- `VIBEGRAM_WORK_ROOT=/var/lib/vibegram`
+- `VIBEGRAM_STATE_DIR=/var/lib/vibegram/state`
+
+Secrets and provider commands should still come from `/etc/vibegram/env`.
+
 ## Config surface
 
 Recommended config:

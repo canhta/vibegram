@@ -41,4 +41,4 @@ Turn provider-specific signals into one clean, deduped, provenance-aware event s
 - [x] Preserve trust provenance on normalized events
 - [x] Write table-driven tests for all supported event mappings
 - [x] Implement dedupe keys and replay protection
-- [x] Verify one logical event becomes one normalized event
+- [ ] Verify one logical event becomes one normalized event across duplicate provider observations

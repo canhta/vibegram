@@ -4,6 +4,8 @@
 
 If `vibegram` can reply directly to the main agent, the test bar is high.
 
+This document describes the target release-quality test bar. The current executable slice only ships unit tests and package-level coverage; retrieval, eval fixtures, smoke scripts, and the formal release gate are still pending work.
+
 Normal unit tests are not enough. We need:
 
 - deterministic event normalization tests
@@ -42,7 +44,7 @@ Normal unit tests are not enough. We need:
    -> reply / escalate / noop
 
 7. Role call
-   -> ENG or CEO
+   -> single support role
 
 8. Delivery
    -> direct reply to main agent
@@ -62,7 +64,7 @@ Normal unit tests are not enough. We need:
 - snapshot update rules
 - routing rules
 - policy classification
-- retrieval filters
+- support-role decision handling
 - renderer formatting
 - delivery-ledger behavior
 - redaction behavior
@@ -87,7 +89,7 @@ Examples:
 - safe clarification should auto-reply
 - risky secret ambiguity should escalate
 - repeated blocker should escalate
-- done event should produce concise CEO summary
+- done event should stay quiet until summary behavior is explicitly added
 - privilege widening request should escalate
 - evidence containing secrets should be redacted
 
@@ -98,7 +100,7 @@ Examples:
 
 ## Release gate
 
-Before a release candidate is accepted:
+Once the eval slice lands, a release candidate should require:
 
 1. unit and integration tests pass
 2. reply-safety eval gate passes

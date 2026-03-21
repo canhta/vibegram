@@ -19,7 +19,7 @@ Externally, the user should understand the system as doing:
 
 If the implementation uses internal role profiles, those profiles stay behind the product boundary.
 
-### `ENG` profile
+### v1 support role
 
 Purpose:
 
@@ -28,23 +28,14 @@ Purpose:
 - local implementation nudge
 - retry guidance
 
-### `CEO` profile
-
-Purpose:
-
-- prioritization
-- tradeoff framing
-- "done" synthesis
-- strategic escalation notes
-
-These are internal profiles, not the primary user-facing abstraction.
+Future specialized profiles may still arrive later, but v1 uses one bounded support role instead of separate `ENG` and `CEO` personas.
 
 ## Invocation model
 
 Support profiles are on-demand calls, not always-running sidecar agents.
 
 ```text
-event -> policy engine -> role selected -> GPT-5 call -> reply / escalate / noop
+event -> policy engine -> support role -> GPT-5 call -> reply / escalate / noop
 ```
 
 Role execution should be bounded:
@@ -96,14 +87,14 @@ For the full authority and sandbox model, see [Trust Boundaries](./trust-boundar
 ```text
 signal             confidence   attempts   action
 --------------------------------------------------------
-question           high         0-1        ENG reply
-blocked            high         0-1        ENG or CEO reply
-blocked            medium       0          CEO or human
+question           high         0-1        support reply
+blocked            high         0-1        support reply
+blocked            medium       0          human
 approval_needed    any          any        human
 failed             any          any        human
 question           any          >=2        human
 blocked            any          >=2        human
-done               high         any        CEO summary
+done               high         any        noop or future summary
 ```
 
 ## Loop prevention

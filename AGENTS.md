@@ -2,7 +2,7 @@
 
 Agent instructions for `vibegram`.
 
-`vibegram` is a design-first OSS repo for a Telegram-native control room for vibecoding agents. The project is not implemented yet. Right now, the repository's source of truth is the docs under [`docs/`](/Users/canh/Projects/OSS/vibegram/docs).
+`vibegram` is a design-first OSS repo for a Telegram-native control room for vibecoding agents. The repo now has a runnable Go skeleton and several implemented slices, but the repository's source of truth for architecture and plan is still the docs under [`docs/`](/Users/canh/Projects/OSS/vibegram/docs).
 
 ## Start Here
 
@@ -48,16 +48,17 @@ Do not drift from these unless the user explicitly wants a design change:
 
 Current status:
 
-- docs-first
+- design-led
 - architecture locked
-- implementation planned
-- no Go code scaffolded yet
+- implementation in progress
+- Go module and core packages scaffolded
+- Phases 1 and 2 complete in tree; Phases 3 and 4 partially implemented
 
 This means:
 
-- prefer editing docs, schemas, and plans over speculative code scaffolding
+- prefer editing docs, schemas, and plans when the task is architectural or plan-level
 - do not invent build, test, or dev commands that do not exist yet
-- if you add implementation files later, keep the docs aligned in the same change
+- when you change implementation or plan state, keep the docs aligned in the same change
 
 ## Implementation Defaults
 

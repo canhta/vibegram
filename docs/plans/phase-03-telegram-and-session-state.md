@@ -24,7 +24,7 @@ Wire the daemon to Telegram both ways: send filtered events to General and sessi
 - concise Telegram renderer
 - Telegram long-polling loop (inbound)
 - inbound message router: topic → session → agent PTY stdin
-- General topic command handler (start / stop / status)
+- General topic command handler (`status` first, then `start` / `stop`)
 - Telegram user authorization (admin / operator / observer)
 - rolling session snapshot store
 - delivery ledger for idempotent visible sends
@@ -45,7 +45,8 @@ Wire the daemon to Telegram both ways: send filtered events to General and sessi
 - [x] Map Telegram user IDs to roles: `admin`, `operator`, `observer`
 - [x] Route incoming session-topic messages to the matching live agent session
 - [x] Inject authorized human replies into the agent process via PTY stdin
-- [x] Handle General topic commands: `start <session>`, `stop <session>`, `status`
+- [x] Handle General topic command: `status`
+- [ ] Implement General topic commands: `start <session>`, `stop <session>`
 - [x] Reject or log messages from unauthorized users without action
 - [x] Write tests for inbound routing, authorization, and PTY injection
 
@@ -53,7 +54,9 @@ Wire the daemon to Telegram both ways: send filtered events to General and sessi
 
 - [x] Write snapshot update tests for every normalized event type
 - [x] Implement bounded recent event storage
-- [x] Implement summary fields for files, tests, blocker, and role activity
-- [ ] Add trust-related fields: `sandbox_profile`, `pending_elevation`, `evidence_refs`
-- [ ] Track session owner and last human actor for auditability
+- [x] Implement summary fields for files, tests, and blocker activity
+- [ ] Track last role activity in rolling snapshot state
+- [ ] Add `sandbox_profile` to session or snapshot state
+- [ ] Persist trust-related fields in the rolling snapshot; `pending_elevation` and `evidence_refs` currently live on the session record only
+- [x] Track session owner and last human actor for auditability
 - [x] Verify restart persistence and recovery

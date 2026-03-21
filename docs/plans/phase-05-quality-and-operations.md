@@ -1,4 +1,4 @@
-# Phase 5: Smoke Tests and VPS Run
+# Phase 5: Quality and Operations
 
 ## Goal
 

@@ -4,7 +4,7 @@ Telegram-native control room for vibecoding agents.
 
 `vibegram` is a local-first daemon that runs coding agents, filters their noisy output into human-readable Telegram updates, and lets support roles unblock the main agent automatically until a genuinely critical decision needs a human.
 
-Status: docs-first repo with the first Go bootstrap slice in place. The repository contains the product docs, system design, schemas, diagrams, tracked phase plans, and an initial daemon entrypoint with config loading.
+Status: design-led repo with a runnable Go daemon skeleton, completed Phase 1 work, most of Phase 2 work, and partial Phase 3 and Phase 4 implementation in tree.
 
 ## Why this exists
 
@@ -18,7 +18,7 @@ Current coding-agent workflows leak too much raw terminal output into the human 
 
 ## Current state
 
-Today this repo is the design source of truth, not a shipped daemon yet.
+Today this repo is still design-led and not a shipped daemon yet, but it is no longer docs-only.
 
 What is already here:
 
@@ -26,17 +26,22 @@ What is already here:
 - Telegram, Go, and OpenAI research notes
 - diagrams and schemas
 - a concrete implementation plan for the first Go-based version
-- initial Go module, bootstrap app, boot tests, file-backed session/run state store, direct PTY runner primitive, generic event normalization core, and provider priority contract
+- runnable daemon entrypoint with config loading and boot tests
+- file-backed session, run, and snapshot state stores
+- direct PTY runner
+- Claude and Codex adapters with transcript fixtures and normalization tests
+- event normalization, dedupe, and provider priority handling
+- Telegram routing, rendering, authorization, inbound PTY injection, and delivery-ledger primitives
+- unified support-role executor, policy engine, and a `systemd` service unit
 
 What is not here yet:
 
-- provider transcript ingestion and adapter wiring
-- Telegram routing
-- role execution and policy automation
-- provider-specific normalization fixtures
-- packaging
-- provider fixtures
-- integration tests
+- Telegram Bot API long-polling and real outbound delivery wiring
+- General topic `start <session>` and `stop <session>` commands
+- explicit approval packets and Telegram-side secret redaction
+- Markdown memory, retrieval, and teaching capture
+- eval suites, real-provider smoke runs, and end-to-end integration coverage
+- real VPS verification for boot, restart, and journald behavior
 
 The delivery plan is staged:
 

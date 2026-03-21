@@ -23,9 +23,9 @@ flowchart TD
     ADAPTERS["Provider adapters"]
     EVENTS["Event normalizer"]
     SNAPSHOT["Rolling snapshot store"]
-    RETRIEVAL["Local retrieval index"]
+    RETRIEVAL["Local retrieval index<br/>(later slice)"]
     POLICY["Policy engine"]
-    ROLES["ENG / CEO role executor"]
+    ROLES["Support role executor"]
 
     CLAUDE["Claude Code"]
     CODEX["Codex"]
@@ -117,7 +117,7 @@ flowchart TD
 
     GENERAL["render to General topic"]
     SESSION["render to session topic"]
-    ROLE["invoke ENG or CEO"]
+    ROLE["invoke support role"]
     NOOP["no-op"]
 
     RAW --> NORMALIZE --> SNAP --> ROUTE
@@ -133,8 +133,8 @@ flowchart TD
 sequenceDiagram
     participant Main as Main agent
     participant V as vibegram
-    participant M as Memory and snapshot
-    participant R as ENG or CEO
+    participant M as Session state and future memory
+    participant R as Support role
     participant T as Telegram
     participant H as Human
 

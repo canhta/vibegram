@@ -1,6 +1,7 @@
 # OpenAI Guidance
 
-This file captures the current official OpenAI guidance that most directly affects the `ENG` and `CEO` role layer in `vibegram`.
+This file captures the current official OpenAI guidance that most directly affects the support-role layer in `vibegram`.
+The current executable slice uses one bounded support role; future specialized profiles may still split that behavior later.
 
 ## Model selection
 
@@ -14,8 +15,8 @@ Source:
 
 Implications for `vibegram`:
 
-- default high-trust path: `CEO` on `gpt-5.4`
-- cost-sensitive fast path: `ENG` on `gpt-5.4-mini`
+- default high-trust path: support role on `gpt-5.4`
+- cost-sensitive fast path: support role on `gpt-5.4-mini`
 - actual defaults should still be measured by evals, not chosen once and forgotten
 
 ## Coding-specialized models
@@ -31,7 +32,7 @@ Sources:
 
 Implications for `vibegram`:
 
-- `ENG` may eventually benefit from a coding-optimized model
+- the support role may eventually benefit from a coding-optimized model
 - the daemon should hide model choice behind a clean role executor interface
 - the docs should keep "GPT-5 family" as the product contract, not one brittle model ID
 
@@ -71,8 +72,8 @@ Source:
 
 Implications for `vibegram`:
 
-- `rules/global.md`, `rules/eng.md`, and `rules/ceo.md` should form a stable prompt prefix
-- retrieved decisions and live session context should be appended after the stable rules
+- the current hardcoded ruleset should stay as a stable prompt prefix
+- later `memory/rules/*.md` and retrieved decisions can be appended after the stable rules
 - role prompts should change slowly and intentionally
 
 ## Structured outputs
@@ -90,7 +91,7 @@ Source:
 
 Implications for `vibegram`:
 
-- `ENG` and `CEO` should return structured JSON like `reply | escalate | noop`
+- the support role should return structured JSON like `reply | escalate | noop`
 - malformed or incomplete role output should fail closed
 - schema shape is part of the safety contract
 
@@ -108,8 +109,8 @@ Source:
 
 Implications for `vibegram`:
 
-- do not use Background mode for quick `ENG` unblock replies
-- consider it for slower `CEO` synthesis or heavier future workflows
+- do not use Background mode for quick support-role unblock replies
+- consider it only for slower future workflows outside the core correctness path
 - do not make Background mode part of the core correctness path
 
 ## Evals and graders

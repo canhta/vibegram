@@ -27,10 +27,15 @@ The event model should be small, stable, and expressive enough to power:
 
 ```text
 phase_changed / files_changed / tests_changed / tool_activity
-  -> session topic only
-
-question / blocked
   -> session topic
+
+question
+  -> session topic
+  -> policy engine may auto-reply or escalate
+
+blocked
+  -> session topic
+  -> General topic
   -> policy engine may auto-reply or escalate
 
 approval_needed / failed

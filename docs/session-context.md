@@ -11,11 +11,13 @@ Telegram session topic
 
 This gives the product a stable identity even when the child process restarts or the provider resumes a session.
 
-## Rolling snapshot
+## Session State Shape
 
-The snapshot should be compact and operational, not philosophical.
+The current executable slice persists two related records per app session:
 
-Recommended fields:
+### Session record
+
+Durable identity, routing, and audit fields:
 
 - `session_id`
 - `run_id`
@@ -27,19 +29,32 @@ Recommended fields:
 - `last_goal`
 - `last_question`
 - `last_blocker`
-- `recent_files_summary`
-- `recent_tests_summary`
-- `recent_events`
-- `reply_attempt_count`
-- `last_role_used`
-- `escalation_state`
 - `linked_decision_refs`
-- `sandbox_profile`
 - `pending_elevation`
 - `evidence_refs`
 - `owner_user_id`
 - `last_human_actor_id`
 - `delivery_state`
+
+### Rolling snapshot
+
+Frequently updated operational summaries:
+
+- `session_id`
+- `phase`
+- `status`
+- `last_blocker`
+- `last_question`
+- `recent_files_summary`
+- `recent_tests_summary`
+- `recent_events`
+- `reply_attempt_count`
+- `escalation_state`
+
+Still planned but not implemented in the current slice:
+
+- `sandbox_profile`
+- `last_role_used` in the rolling snapshot
 
 ## Why not transcript-only
 
@@ -53,6 +68,7 @@ Transcript-only context makes every reply expensive and ambiguous:
 ## Long-term learning model
 
 Long-term learning is file-based and explicit.
+The current executable slice does not ship retrieval yet; these sections describe the intended next layer after the single support-role implementation.
 
 ### Rules
 

@@ -100,7 +100,7 @@ This is the correct mental model for prompt-injection resistance.
 - destructive shell operations
 - irreversible external actions
 
-These must never be approved by `ENG` or `CEO` alone.
+These must never be approved by the autonomous support role alone.
 
 ### Medium-risk sinks
 
@@ -153,16 +153,16 @@ Recommended default profiles:
 
 ## Authority model
 
-`ENG` and `CEO` can recommend or send bounded replies.
-They cannot grant new privileges.
+The autonomous support role can recommend or send bounded replies.
+It cannot grant new privileges.
 
-They must not be able to:
+It must not be able to:
 
-- turn on network access by themselves
-- approve destructive operations by themselves
-- reveal secrets by themselves
-- widen filesystem scope by themselves
-- change the policy engine's own rules by themselves
+- turn on network access by itself
+- approve destructive operations by itself
+- reveal secrets by itself
+- widen filesystem scope by itself
+- change the policy engine's own rules by itself
 
 Authority escalation must come from:
 

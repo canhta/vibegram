@@ -36,7 +36,7 @@ func makeInboundRouter() (*InboundRouter, *mockPTYWriter) {
 		Auth:            auth,
 		Sessions:        sessions,
 		PTY:             pty,
-		GeneralThreadID: 0,
+		GeneralThreadID: 1,
 	}
 	return r, pty
 }
@@ -86,7 +86,7 @@ func TestInboundRouterUnknownTopicIsIgnored(t *testing.T) {
 
 func TestInboundRouterGeneralTopicStatusCommand(t *testing.T) {
 	r, _ := makeInboundRouter()
-	reply, err := r.HandleUpdate(1001, 0, "status")
+	reply, err := r.HandleUpdate(1001, 1, "status")
 	if err != nil {
 		t.Fatalf("HandleUpdate: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestInboundRouterGeneralTopicStatusCommand(t *testing.T) {
 
 func TestInboundRouterGeneralTopicUnknownCommand(t *testing.T) {
 	r, pty := makeInboundRouter()
-	reply, err := r.HandleUpdate(1001, 0, "unknowncommand")
+	reply, err := r.HandleUpdate(1001, 1, "unknowncommand")
 	if err != nil {
 		t.Fatalf("HandleUpdate: %v", err)
 	}

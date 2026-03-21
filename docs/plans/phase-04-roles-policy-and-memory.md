@@ -43,7 +43,8 @@ Implement one unified support role that auto-replies to safe blockers and a poli
 
 ### Policy engine
 
-- [x] Write tests for safe auto-reply, escalation, cooldown, and retry ceiling
+- [x] Write tests for safe auto-reply, escalation, and retry ceiling
+- [ ] Add cooldown window handling and tests
 - [x] Implement source-to-sink risk checks before any autonomous reply
 - [x] Add authorization checks for `admin`, `operator`, and `observer` actions
 - [ ] Implement explicit approval packets for elevated actions

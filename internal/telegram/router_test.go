@@ -10,7 +10,7 @@ import (
 func makeRouter() Router {
 	return Router{
 		ChatID:          100,
-		GeneralThreadID: 0,
+		GeneralThreadID: 1,
 		SessionThreadID: 42,
 	}
 }
@@ -64,10 +64,12 @@ func TestRouteQuestionToSessionTopicOnly(t *testing.T) {
 	assertDestinations(t, dests, []TopicType{TopicSession})
 }
 
-func TestRouteBlockedToSessionTopicOnly(t *testing.T) {
+func TestRouteBlockedToBothTopics(t *testing.T) {
 	r := makeRouter()
 	dests := r.Route(routerEv(events.EventTypeBlocked))
-	assertDestinations(t, dests, []TopicType{TopicSession})
+	if len(dests) != 2 {
+		t.Fatalf("expected 2 destinations for blocked, got %d", len(dests))
+	}
 }
 
 func TestRouteDoneToBothTopics(t *testing.T) {

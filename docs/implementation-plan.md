@@ -4,9 +4,9 @@
 
 **Goal:** Build the first public version of `vibegram`: a single daemon that supervises Codex and Claude Code sessions through Telegram topics with safe support-role automation.
 
-**Architecture:** A single local daemon owns provider runs, normalizes provider signals into stable events, stores a rolling session snapshot, retrieves Markdown rules and decisions, and routes concise updates to one General topic plus per-session topics. `ENG` and `CEO` are invoked on demand through GPT-5-family structured calls.
+**Architecture:** The long-term shape is still a single local daemon that owns provider runs, normalizes provider signals into stable events, stores rolling session state, and routes concise updates to one General topic plus per-session topics. The current executable slice deliberately defers Markdown retrieval and separate `ENG` / `CEO` personas in favor of one bounded support role with hardcoded rules.
 
-**Tech Stack:** Go recommended for the daemon, Telegram Bot API, OpenAI Responses API, local SQLite, file-backed Markdown memory, `systemd` for VPS deployment
+**Tech Stack:** Go recommended for the daemon, Telegram Bot API, OpenAI Responses API, file-backed local state now, local SQLite later for retrieval and eval support, `systemd` for VPS deployment
 
 ---
 
@@ -18,8 +18,8 @@ Tracked execution now lives in multiple phase plans:
 2. [Phase 1: Foundation and Runtime](./plans/phase-01-foundation-and-runtime.md)
 3. [Phase 2: Provider Ingestion and Normalization](./plans/phase-02-provider-ingestion-and-normalization.md)
 4. [Phase 3: Telegram Routing and Session State](./plans/phase-03-telegram-and-session-state.md)
-5. [Phase 4: Roles, Policy, and Memory](./plans/phase-04-roles-policy-and-memory.md)
-6. [Phase 5: Quality, Release Gate, and VPS Ops](./plans/phase-05-quality-and-operations.md)
+5. [Phase 4: Roles and Policy](./plans/phase-04-roles-policy-and-memory.md)
+6. [Phase 5: Quality and Operations](./plans/phase-05-quality-and-operations.md)
 
 Use this file as the overview and phase map.
 
@@ -55,6 +55,7 @@ docs/
 ## Original task map
 
 The original task list is preserved below as a compact reference so the phase plans can trace back to it.
+These checkboxes are archival reference only. Current progress is tracked in [`docs/plans/`](./plans/README.md).
 
 ## Task 1: Repo bootstrap
 
