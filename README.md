@@ -4,7 +4,7 @@ Telegram-native control room for vibecoding agents.
 
 `vibegram` is a local-first daemon that runs coding agents, filters their noisy output into human-readable Telegram updates, and lets support roles unblock the main agent automatically until a genuinely critical decision needs a human.
 
-Status: design-first repo. This repository currently contains the product docs, system design, schemas, diagrams, and implementation plan for the first public version.
+Status: docs-first repo with the first Go bootstrap slice in place. The repository contains the product docs, system design, schemas, diagrams, tracked phase plans, and an initial daemon entrypoint with config loading.
 
 ## Why this exists
 
@@ -26,10 +26,14 @@ What is already here:
 - Telegram, Go, and OpenAI research notes
 - diagrams and schemas
 - a concrete implementation plan for the first Go-based version
+- initial Go module, bootstrap app, boot tests, file-backed session/run state store, and direct PTY runner primitive
 
 What is not here yet:
 
-- Go runtime code
+- provider transcript ingestion and adapter wiring
+- Telegram routing
+- role execution and policy automation
+- least-privilege sandbox enforcement
 - packaging
 - provider fixtures
 - integration tests
@@ -108,3 +112,33 @@ The main agent should keep moving without forcing the human to babysit every cla
 
 If you want to contribute, start with [CONTRIBUTING.md](./CONTRIBUTING.md).
 For architecture-changing work, update the affected docs, decisions, and diagrams together.
+
+## Bootstrap Run
+
+The current bootstrap slice is intentionally small. It does three things:
+
+- loads environment config
+- validates the basic daemon bootstrap settings
+- creates the configured state directory and waits until shutdown
+
+The runner package now supports PTY process execution, but sandboxed profiles currently fail closed. Until a real least-privilege backend lands, only explicit `full_access` runner requests can execute.
+
+Local run command:
+
+```bash
+go run ./cmd/vibegram
+```
+
+Current bootstrap environment variables:
+
+- `VIBEGRAM_TELEGRAM_BOT_TOKEN`
+- `VIBEGRAM_TELEGRAM_FORUM_CHAT_ID`
+- `OPENAI_API_KEY` optional for now
+- `VIBEGRAM_OPENAI_MODEL` optional, defaults to `gpt-5`
+- `VIBEGRAM_PROVIDER_CLAUDE_CMD`
+- `VIBEGRAM_PROVIDER_CODEX_CMD`
+- `VIBEGRAM_WORK_ROOT` optional, defaults to the current working directory
+- `VIBEGRAM_STATE_DIR` optional, defaults to `<work_root>/state`
+- `VIBEGRAM_LOG_LEVEL` optional, defaults to `info`
+- `VIBEGRAM_SANDBOX_DEFAULT_PROFILE` optional, defaults to `workspace_write_network_off`
+- `VIBEGRAM_SANDBOX_ALLOWLISTED_NETWORK_DESTINATIONS` optional, comma-separated

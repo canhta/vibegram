@@ -27,24 +27,24 @@ Create the runnable base of the daemon: module layout, config loading, persisten
 
 ### Repo bootstrap
 
-- [ ] Define the module layout and app entrypoint
-- [ ] Add config loading for Telegram, OpenAI, provider commands, and state directory
-- [ ] Write a failing boot test with sample config values
-- [ ] Implement the minimal app bootstrap to make the test pass
-- [ ] Add an initial local run command once it exists
+- [x] Define the module layout and app entrypoint
+- [x] Add config loading for Telegram, OpenAI, provider commands, and state directory
+- [x] Write a failing boot test with sample config values
+- [x] Implement the minimal app bootstrap to make the test pass
+- [x] Add an initial local run command once it exists
 
 ### Session and run state
 
-- [ ] Define `session_id`, `run_id`, topic IDs, status, phase, and escalation fields
-- [ ] Write tests for create, load, update, and restart-safe persistence
-- [ ] Implement file-backed or SQLite-backed state storage
-- [ ] Verify restart behavior
+- [x] Define `session_id`, `run_id`, topic IDs, status, phase, and escalation fields
+- [x] Write tests for create, load, update, and restart-safe persistence
+- [x] Implement file-backed or SQLite-backed state storage
+- [x] Verify restart behavior
 
 ### Runner and sandbox
 
-- [ ] Write runner tests for process launch, PTY capture, shutdown, and failure detection
-- [ ] Implement the direct PTY runner
-- [ ] Define sandbox profiles with least-privilege defaults
+- [x] Write runner tests for process launch, PTY capture, shutdown, and failure detection
+- [x] Implement the direct PTY runner
+- [x] Define sandbox profiles with least-privilege defaults
 - [ ] Keep network disabled by default
-- [ ] Expose a clean interface for provider-specific launch args
-- [ ] Keep `tmux` out of the critical path
+- [x] Expose a clean interface for provider-specific launch args
+- [x] Keep `tmux` out of the critical path
