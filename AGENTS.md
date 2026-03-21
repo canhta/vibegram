@@ -2,29 +2,29 @@
 
 Agent instructions for `vibegram`.
 
-`vibegram` is a design-first OSS repo for a Telegram-native control room for vibecoding agents. The project is not implemented yet. Right now, the repository's source of truth is the docs under [`docs/`](/Users/canh/project/oss/vibegram/docs).
+`vibegram` is a design-first OSS repo for a Telegram-native control room for vibecoding agents. The project is not implemented yet. Right now, the repository's source of truth is the docs under [`docs/`](/Users/canh/Projects/OSS/vibegram/docs).
 
 ## Start Here
 
 Before changing architecture, product behavior, or implementation plans, read:
 
-1. [`README.md`](/Users/canh/project/oss/vibegram/README.md)
-2. [`docs/decisions.md`](/Users/canh/project/oss/vibegram/docs/decisions.md)
-3. [`docs/architecture.md`](/Users/canh/project/oss/vibegram/docs/architecture.md)
-4. [`docs/telegram-model.md`](/Users/canh/project/oss/vibegram/docs/telegram-model.md)
-5. [`docs/provider-model.md`](/Users/canh/project/oss/vibegram/docs/provider-model.md)
-6. [`docs/session-context.md`](/Users/canh/project/oss/vibegram/docs/session-context.md)
-7. [`docs/runtime-ops.md`](/Users/canh/project/oss/vibegram/docs/runtime-ops.md)
-8. [`docs/implementation-plan.md`](/Users/canh/project/oss/vibegram/docs/implementation-plan.md)
-9. [`docs/plans/README.md`](/Users/canh/project/oss/vibegram/docs/plans/README.md)
-10. [`docs/diagrams.md`](/Users/canh/project/oss/vibegram/docs/diagrams.md)
+1. [`README.md`](/Users/canh/Projects/OSS/vibegram/README.md)
+2. [`docs/decisions.md`](/Users/canh/Projects/OSS/vibegram/docs/decisions.md)
+3. [`docs/architecture.md`](/Users/canh/Projects/OSS/vibegram/docs/architecture.md)
+4. [`docs/telegram-model.md`](/Users/canh/Projects/OSS/vibegram/docs/telegram-model.md)
+5. [`docs/provider-model.md`](/Users/canh/Projects/OSS/vibegram/docs/provider-model.md)
+6. [`docs/session-context.md`](/Users/canh/Projects/OSS/vibegram/docs/session-context.md)
+7. [`docs/runtime-ops.md`](/Users/canh/Projects/OSS/vibegram/docs/runtime-ops.md)
+8. [`docs/implementation-plan.md`](/Users/canh/Projects/OSS/vibegram/docs/implementation-plan.md)
+9. [`docs/plans/README.md`](/Users/canh/Projects/OSS/vibegram/docs/plans/README.md)
+10. [`docs/diagrams.md`](/Users/canh/Projects/OSS/vibegram/docs/diagrams.md)
 
 Use the deeper research docs only when the task touches those areas:
 
-- Telegram platform details: [`docs/telegram-research.md`](/Users/canh/project/oss/vibegram/docs/telegram-research.md)
-- Go implementation guidance: [`docs/go-guidance.md`](/Users/canh/project/oss/vibegram/docs/go-guidance.md)
-- OpenAI role-layer guidance: [`docs/openai-guidance.md`](/Users/canh/project/oss/vibegram/docs/openai-guidance.md)
-- Reference lessons from the old system: [`docs/ccgram-lessons.md`](/Users/canh/project/oss/vibegram/docs/ccgram-lessons.md)
+- Telegram platform details: [`docs/telegram-research.md`](/Users/canh/Projects/OSS/vibegram/docs/telegram-research.md)
+- Go implementation guidance: [`docs/go-guidance.md`](/Users/canh/Projects/OSS/vibegram/docs/go-guidance.md)
+- OpenAI role-layer guidance: [`docs/openai-guidance.md`](/Users/canh/Projects/OSS/vibegram/docs/openai-guidance.md)
+- Reference lessons from the old system: [`docs/ccgram-lessons.md`](/Users/canh/Projects/OSS/vibegram/docs/ccgram-lessons.md)
 
 ## Product Invariants
 
@@ -93,14 +93,14 @@ Implementation stance:
 
 When changing the design:
 
-- update [`docs/decisions.md`](/Users/canh/project/oss/vibegram/docs/decisions.md) if a locked decision changes
+- update [`docs/decisions.md`](/Users/canh/Projects/OSS/vibegram/docs/decisions.md) if a locked decision changes
 - update the affected topic docs, not just one summary page
-- update [`docs/diagrams.md`](/Users/canh/project/oss/vibegram/docs/diagrams.md) when flows or boundaries change
-- keep schemas in [`docs/schemas/`](/Users/canh/project/oss/vibegram/docs/schemas) aligned with the written design
+- update [`docs/diagrams.md`](/Users/canh/Projects/OSS/vibegram/docs/diagrams.md) when flows or boundaries change
+- keep schemas in [`docs/schemas/`](/Users/canh/Projects/OSS/vibegram/docs/schemas) aligned with the written design
 
 When executing work from a tracked plan:
 
-- update the relevant checklist in [`docs/plans/`](/Users/canh/project/oss/vibegram/docs/plans) in the same change
+- update the relevant checklist in [`docs/plans/`](/Users/canh/Projects/OSS/vibegram/docs/plans) in the same change
 - do not mark a checkbox complete unless the corresponding work and verification are actually done
 
 Do not quietly reintroduce rejected ideas:
