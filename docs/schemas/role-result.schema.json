@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoleResult",
+  "type": "object",
+  "required": [
+    "action",
+    "reason",
+    "confidence"
+  ],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["reply", "escalate", "noop"]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "reply_text": {
+      "type": "string"
+    },
+    "escalation_summary": {
+      "type": "string"
+    },
+    "decision_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

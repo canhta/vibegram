@@ -1,0 +1,25 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Env / secrets
+.env
+.env.*
+
+# Runtime state
+state/
+tmp/
+logs/
+
+# Builds
+dist/
+bin/
+
+# Go
+*.test
+coverage.out
+
+# Node
+node_modules/
+
