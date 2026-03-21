@@ -26,7 +26,7 @@ What is already here:
 - Telegram, Go, and OpenAI research notes
 - diagrams and schemas
 - a concrete implementation plan for the first Go-based version
-- initial Go module, bootstrap app, boot tests, file-backed session/run state store, and direct PTY runner primitive
+- initial Go module, bootstrap app, boot tests, file-backed session/run state store, direct PTY runner primitive, generic event normalization core, and provider priority contract
 
 What is not here yet:
 
@@ -34,6 +34,7 @@ What is not here yet:
 - Telegram routing
 - role execution and policy automation
 - least-privilege sandbox enforcement
+- provider-specific normalization fixtures
 - packaging
 - provider fixtures
 - integration tests

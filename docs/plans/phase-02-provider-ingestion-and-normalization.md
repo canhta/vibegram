@@ -32,13 +32,13 @@ Turn provider-specific signals into one clean, deduped, provenance-aware event s
 - [ ] Write parser fixtures for Codex transcripts
 - [ ] Implement raw observation emission for Claude
 - [ ] Implement raw observation emission for Codex
-- [ ] Implement signal priority rules for both providers
-- [ ] Verify duplicate raw observations remain distinguishable before normalization
+- [x] Implement signal priority rules for both providers
+- [x] Verify duplicate raw observations remain distinguishable before normalization
 
 ### Event normalization
 
-- [ ] Define the balanced normalized event set in code
-- [ ] Preserve trust provenance on normalized events
-- [ ] Write table-driven tests for all supported event mappings
-- [ ] Implement dedupe keys and replay protection
-- [ ] Verify one logical event becomes one normalized event
+- [x] Define the balanced normalized event set in code
+- [x] Preserve trust provenance on normalized events
+- [x] Write table-driven tests for all supported event mappings
+- [x] Implement dedupe keys and replay protection
+- [x] Verify one logical event becomes one normalized event
