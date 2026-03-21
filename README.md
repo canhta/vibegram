@@ -4,7 +4,35 @@ Telegram-native control room for vibecoding agents.
 
 `vibegram` is a local-first daemon that runs coding agents, filters their noisy output into human-readable Telegram updates, and lets support roles unblock the main agent automatically until a genuinely critical decision needs a human.
 
-Status: design-first repo. This repository currently contains the product docs, system design, schemas, and implementation plan for the first public version.
+Status: design-first repo. This repository currently contains the product docs, system design, schemas, diagrams, and implementation plan for the first public version.
+
+## Why this exists
+
+Current coding-agent workflows leak too much raw terminal output into the human loop.
+`vibegram` is meant to make that supervision layer calmer and more useful:
+
+- one General topic for overview and critical alerts
+- one session topic per working agent session
+- quiet, filtered updates instead of transcript spam
+- safe support-role automation until a human decision is truly needed
+
+## Current state
+
+Today this repo is the design source of truth, not a shipped daemon yet.
+
+What is already here:
+
+- locked product and architecture decisions
+- Telegram, Go, and OpenAI research notes
+- diagrams and schemas
+- a concrete implementation plan for the first Go-based version
+
+What is not here yet:
+
+- Go runtime code
+- packaging
+- provider fixtures
+- integration tests
 
 ## What vibegram is
 
@@ -39,6 +67,14 @@ The main agent should keep moving without forcing the human to babysit every cla
 5. GPT-5 family for inference. OpenAI Responses features are accelerators, not the source of truth.
 6. Safe automation. `ENG` and `CEO` reply directly only when policy says it is safe.
 
+## Repo map
+
+- [`AGENTS.md`](./AGENTS.md): root instructions for coding agents working in this repo
+- [`docs/README.md`](./docs/README.md): reading order for the design set
+- [`docs/diagrams.md`](./docs/diagrams.md): visual system overview and key flows
+- [`docs/implementation-plan.md`](./docs/implementation-plan.md): proposed first build plan
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md): how to contribute without drifting the design
+
 ## Docs
 
 - [Docs Index](./docs/README.md)
@@ -59,6 +95,7 @@ The main agent should keep moving without forcing the human to babysit every cla
 - [Testing and Evals](./docs/testing-evals.md)
 - [Implementation Plan](./docs/implementation-plan.md)
 
-## Publishing note
+## Contributing
 
-This repo is ready for public publishing once the remote destination and license are confirmed.
+If you want to contribute, start with [CONTRIBUTING.md](./CONTRIBUTING.md).
+For architecture-changing work, update the affected docs, decisions, and diagrams together.
