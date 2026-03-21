@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +24,6 @@ func TestBootstrapFromEnvBuildsApp(t *testing.T) {
 	t.Setenv("VIBEGRAM_PROVIDER_CODEX_CMD", "/usr/local/bin/codex")
 	t.Setenv("VIBEGRAM_WORK_ROOT", workRoot)
 	t.Setenv("VIBEGRAM_STATE_DIR", stateDir)
-	t.Setenv("VIBEGRAM_SANDBOX_ALLOWLISTED_NETWORK_DESTINATIONS", "api.openai.com, registry.npmjs.org")
-
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		t.Fatalf("LoadFromEnv() error = %v", err)
@@ -34,15 +31,6 @@ func TestBootstrapFromEnvBuildsApp(t *testing.T) {
 
 	if cfg.Telegram.ForumChatID != -1001234567890 {
 		t.Fatalf("ForumChatID = %d, want %d", cfg.Telegram.ForumChatID, int64(-1001234567890))
-	}
-
-	if cfg.Sandbox.DefaultProfile != config.SandboxProfileWorkspaceWriteNetworkOff {
-		t.Fatalf("DefaultProfile = %q, want %q", cfg.Sandbox.DefaultProfile, config.SandboxProfileWorkspaceWriteNetworkOff)
-	}
-
-	wantAllowlist := []string{"api.openai.com", "registry.npmjs.org"}
-	if !reflect.DeepEqual(cfg.Sandbox.AllowlistedNetworkDestinations, wantAllowlist) {
-		t.Fatalf("AllowlistedNetworkDestinations = %#v, want %#v", cfg.Sandbox.AllowlistedNetworkDestinations, wantAllowlist)
 	}
 
 	application, err := app.New(cfg)

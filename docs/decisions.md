@@ -52,8 +52,6 @@ This file records the major product and engineering decisions already made.
 2. API style: Responses API plus structured outputs
 3. OpenAI conversation state: optimization only, not the source of truth
 4. Full reply-safety eval gate is required
-5. Agent runs must execute with least privilege by default
-6. Network access is disabled by default unless explicitly elevated
 7. `ENG` and `CEO` cannot grant new privileges on their own
 8. Policy decisions must preserve trusted-vs-untrusted provenance
 

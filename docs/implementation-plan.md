@@ -90,7 +90,6 @@ The original task list is preserved below as a compact reference so the phase pl
 
 - [ ] Write runner tests for process launch, PTY capture, shutdown, and failure detection.
 - [ ] Implement direct PTY runner.
-- [ ] Implement sandbox profiles with least-privilege defaults.
 - [ ] Expose a clean interface for provider-specific launch args.
 - [ ] Keep `tmux` out of the critical path.
 

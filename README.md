@@ -33,7 +33,6 @@ What is not here yet:
 - provider transcript ingestion and adapter wiring
 - Telegram routing
 - role execution and policy automation
-- least-privilege sandbox enforcement
 - provider-specific normalization fixtures
 - packaging
 - provider fixtures
@@ -77,7 +76,6 @@ The main agent should keep moving without forcing the human to babysit every cla
 4. Markdown memory first. Rules and learned decisions live in files you can inspect and diff.
 5. GPT-5 family for inference. OpenAI Responses features are accelerators, not the source of truth.
 6. Safe automation. Support actions reply directly only when policy says it is safe.
-7. Least privilege by default. Network, secrets, and elevated actions stay behind explicit boundaries.
 
 ## Repo map
 
@@ -122,8 +120,6 @@ The current bootstrap slice is intentionally small. It does three things:
 - validates the basic daemon bootstrap settings
 - creates the configured state directory and waits until shutdown
 
-The runner package now supports PTY process execution, but sandboxed profiles currently fail closed. Until a real least-privilege backend lands, only explicit `full_access` runner requests can execute.
-
 Local run command:
 
 ```bash
@@ -141,5 +137,3 @@ Current bootstrap environment variables:
 - `VIBEGRAM_WORK_ROOT` optional, defaults to the current working directory
 - `VIBEGRAM_STATE_DIR` optional, defaults to `<work_root>/state`
 - `VIBEGRAM_LOG_LEVEL` optional, defaults to `info`
-- `VIBEGRAM_SANDBOX_DEFAULT_PROFILE` optional, defaults to `workspace_write_network_off`
-- `VIBEGRAM_SANDBOX_ALLOWLISTED_NETWORK_DESTINATIONS` optional, comma-separated

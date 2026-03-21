@@ -52,7 +52,7 @@ For the maintained visual set used across the repo, see [Diagrams](./diagrams.md
 Responsibilities:
 
 - launch agent processes
-- enforce sandbox profile
+
 - capture PTY output
 - track process lifecycle
 - optionally support `tmux` later as an adapter

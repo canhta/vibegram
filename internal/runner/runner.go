@@ -11,26 +11,21 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/canhta/vibegram/internal/config"
 	"github.com/creack/pty"
 )
-
-var ErrSandboxUnavailable = errors.New("sandbox enforcement unavailable")
 
 type Runner struct{}
 
 type Request struct {
-	CommandPath    string
-	Args           []string
-	Dir            string
-	Env            []string
-	SandboxProfile config.SandboxProfile
+	CommandPath string
+	Args        []string
+	Dir         string
+	Env         []string
 }
 
 type Result struct {
-	Output         string
-	ExitCode       int
-	SandboxProfile config.SandboxProfile
+	Output   string
+	ExitCode int
 }
 
 func New() *Runner {
@@ -43,17 +38,6 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	if !filepath.IsAbs(req.CommandPath) {
 		return Result{}, fmt.Errorf("command path must be absolute")
-	}
-
-	effectiveProfile := req.SandboxProfile
-	if effectiveProfile == "" {
-		effectiveProfile = config.SandboxProfileWorkspaceWriteNetworkOff
-	}
-	if effectiveProfile != config.SandboxProfileFullAccess {
-		return Result{
-			ExitCode:       -1,
-			SandboxProfile: effectiveProfile,
-		}, fmt.Errorf("%w for profile %q", ErrSandboxUnavailable, effectiveProfile)
 	}
 
 	cmd := exec.CommandContext(ctx, req.CommandPath, req.Args...)
@@ -85,9 +69,8 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 
 	result := Result{
-		Output:         output.String(),
-		ExitCode:       exitCode(cmd.ProcessState, waitErr),
-		SandboxProfile: effectiveProfile,
+		Output:   output.String(),
+		ExitCode: exitCode(cmd.ProcessState, waitErr),
 	}
 
 	if ctx.Err() != nil {

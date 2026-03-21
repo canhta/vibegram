@@ -1,8 +1,8 @@
-# Phase 4: Roles, Policy, and Memory
+# Phase 4: Roles and Policy
 
 ## Goal
 
-Implement bounded support actions, GPT-5-family profile execution, source-to-sink policy decisions, and the first safe memory hooks.
+Implement one unified support role that auto-replies to safe blockers and a policy engine that decides when to reply, escalate, or do nothing. Human handles only critical or risky decisions.
 
 ## Depends on
 
@@ -15,42 +15,37 @@ Implement bounded support actions, GPT-5-family profile execution, source-to-sin
 - [Session Context](../session-context.md)
 - [OpenAI Guidance](../openai-guidance.md)
 - [Trust Boundaries](../trust-boundaries.md)
-- [Testing and Evals](../testing-evals.md)
 
 ## Deliverables
 
-- support-action executor
+- one support role executor (GPT-5 structured call: `reply` / `escalate` / `noop`)
 - policy engine with source-sink checks
-- explicit approval handling
-- optional first memory hooks
+- explicit approval packets for elevated actions
+
+## Deferred to v2 (not in this phase)
+
+- Markdown memory and retrieval index
+- separate ENG / CEO role personas
+- teaching capture (human override → decision record)
+- rule promotion workflow
 
 ## Checklist
 
-### Markdown memory and retrieval
-
-- [ ] Decide the thinnest v1 memory path that is actually needed
-- [ ] If memory ships in v1, keep it to explicit saved decisions and lightweight retrieval
-- [ ] Defer richer promotion workflows until the supervision loop proves itself
-
-### Role execution
+### Support role executor
 
 - [ ] Define structured output contracts for `reply`, `escalate`, and `noop`
-- [ ] Implement GPT-5-family role calls via OpenAI Responses
+- [ ] Implement a single unified support role via GPT-5-family OpenAI Responses call
 - [ ] Keep prompt prefixes stable for caching
-- [ ] Ensure prompts separate trusted policy, trusted system state, and untrusted evidence
+- [ ] Ensure prompts separate trusted policy, trusted system state, and untrusted evidence sections
+- [ ] Hardcode a small initial ruleset directly in the role prompt (no retrieval index needed for v1)
 - [ ] Ensure role-generated messages cannot recursively trigger more role calls
 - [ ] Verify malformed or incomplete role outputs fail closed
-- [ ] Keep persona naming internal and expose only user-facing support actions
 
-### Policy engine and teaching capture
+### Policy engine
 
 - [ ] Write tests for safe auto-reply, escalation, cooldown, and retry ceiling
-- [ ] Implement role selection and decision handling
-- [ ] Implement source-to-sink risk checks before autonomous replies
-- [ ] Add authorization checks for operator, admin, and observer actions
+- [ ] Implement source-to-sink risk checks before any autonomous reply
+- [ ] Add authorization checks for `admin`, `operator`, and `observer` actions
 - [ ] Implement explicit approval packets for elevated actions
 - [ ] Verify repeated blockers escalate instead of looping
-- [ ] Define how a human override becomes a Markdown decision record
-- [ ] Write tests for decision file creation and retrieval visibility
-- [ ] Redact secrets before Telegram output or Markdown memory capture
-- [ ] Keep rule promotion gated behind eval passage
+- [ ] Redact secrets before Telegram output

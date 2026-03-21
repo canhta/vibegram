@@ -7,29 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/canhta/vibegram/internal/config"
 	"github.com/canhta/vibegram/internal/runner"
 )
 
-func TestRunFailsClosedForDefaultNetworkOffProfile(t *testing.T) {
-	r := runner.New()
-
-	_, err := r.Run(context.Background(), runner.Request{
-		CommandPath: "/bin/sh",
-		Args:        []string{"-c", "printf 'hello from pty\\n'"},
-	})
-	if !errors.Is(err, runner.ErrSandboxUnavailable) {
-		t.Fatalf("Run() error = %v, want ErrSandboxUnavailable", err)
-	}
-}
-
-func TestRunCapturesPTYOutputWhenFullAccessIsExplicit(t *testing.T) {
+func TestRunCapturesPTYOutput(t *testing.T) {
 	r := runner.New()
 
 	result, err := r.Run(context.Background(), runner.Request{
-		CommandPath:    "/bin/sh",
-		Args:           []string{"-c", "printf 'hello from pty\\n'"},
-		SandboxProfile: config.SandboxProfileFullAccess,
+		CommandPath: "/bin/sh",
+		Args:        []string{"-c", "printf 'hello from pty\\n'"},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -40,18 +26,14 @@ func TestRunCapturesPTYOutputWhenFullAccessIsExplicit(t *testing.T) {
 	if result.ExitCode != 0 {
 		t.Fatalf("ExitCode = %d, want 0", result.ExitCode)
 	}
-	if result.SandboxProfile != config.SandboxProfileFullAccess {
-		t.Fatalf("SandboxProfile = %q, want %q", result.SandboxProfile, config.SandboxProfileFullAccess)
-	}
 }
 
 func TestRunReportsNonZeroExitCode(t *testing.T) {
 	r := runner.New()
 
 	result, err := r.Run(context.Background(), runner.Request{
-		CommandPath:    "/bin/sh",
-		Args:           []string{"-c", "printf 'boom\\n'; exit 3"},
-		SandboxProfile: config.SandboxProfileFullAccess,
+		CommandPath: "/bin/sh",
+		Args:        []string{"-c", "printf 'boom\\n'; exit 3"},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v, want nil", err)
@@ -74,9 +56,8 @@ func TestRunStopsWhenContextIsCancelled(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := r.Run(ctx, runner.Request{
-			CommandPath:    "/bin/sh",
-			Args:           []string{"-c", "sleep 10"},
-			SandboxProfile: config.SandboxProfileFullAccess,
+			CommandPath: "/bin/sh",
+			Args:        []string{"-c", "sleep 10"},
 		})
 		done <- err
 	}()

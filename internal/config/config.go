@@ -8,21 +8,11 @@ import (
 	"strings"
 )
 
-type SandboxProfile string
-
-const (
-	SandboxProfileWorkspaceWrite                   SandboxProfile = "workspace_write"
-	SandboxProfileWorkspaceWriteNetworkOff         SandboxProfile = "workspace_write_network_off"
-	SandboxProfileWorkspaceWriteAllowlistedNetwork SandboxProfile = "workspace_write_allowlisted_network"
-	SandboxProfileFullAccess                       SandboxProfile = "full_access"
-)
-
 type Config struct {
 	Telegram  TelegramConfig
 	OpenAI    OpenAIConfig
 	Providers ProviderConfig
 	Runtime   RuntimeConfig
-	Sandbox   SandboxConfig
 }
 
 type TelegramConfig struct {
@@ -46,11 +36,6 @@ type RuntimeConfig struct {
 	LogLevel string
 }
 
-type SandboxConfig struct {
-	DefaultProfile                 SandboxProfile
-	AllowlistedNetworkDestinations []string
-}
-
 func LoadFromEnv() (Config, error) {
 	botToken, err := requiredStringEnv("VIBEGRAM_TELEGRAM_BOT_TOKEN")
 	if err != nil {
@@ -72,11 +57,6 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, err
 	}
 
-	profile, err := sandboxProfileFromEnv()
-	if err != nil {
-		return Config{}, err
-	}
-
 	return Config{
 		Telegram: TelegramConfig{
 			BotToken:    botToken,
@@ -94,10 +74,6 @@ func LoadFromEnv() (Config, error) {
 			WorkRoot: workRoot,
 			StateDir: stateDir,
 			LogLevel: envOrDefault("VIBEGRAM_LOG_LEVEL", "info"),
-		},
-		Sandbox: SandboxConfig{
-			DefaultProfile:                 profile,
-			AllowlistedNetworkDestinations: parseCSVEnv("VIBEGRAM_SANDBOX_ALLOWLISTED_NETWORK_DESTINATIONS"),
 		},
 	}, nil
 }
@@ -153,21 +129,6 @@ func runtimeStateDir(workRoot string) (string, error) {
 	return filepath.Clean(abs), nil
 }
 
-func sandboxProfileFromEnv() (SandboxProfile, error) {
-	profile := SandboxProfile(envOrDefault("VIBEGRAM_SANDBOX_DEFAULT_PROFILE", string(SandboxProfileWorkspaceWriteNetworkOff)))
-	switch profile {
-	case SandboxProfileWorkspaceWrite, SandboxProfileWorkspaceWriteNetworkOff, SandboxProfileWorkspaceWriteAllowlistedNetwork, SandboxProfileFullAccess:
-		return profile, nil
-	default:
-		return "", fmt.Errorf("VIBEGRAM_SANDBOX_DEFAULT_PROFILE must be one of %q, %q, %q, or %q",
-			SandboxProfileWorkspaceWrite,
-			SandboxProfileWorkspaceWriteNetworkOff,
-			SandboxProfileWorkspaceWriteAllowlistedNetwork,
-			SandboxProfileFullAccess,
-		)
-	}
-}
-
 func envOrDefault(key, fallback string) string {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
@@ -175,23 +136,4 @@ func envOrDefault(key, fallback string) string {
 	}
 
 	return value
-}
-
-func parseCSVEnv(key string) []string {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return nil
-	}
-
-	parts := strings.Split(raw, ",")
-	parsed := make([]string, 0, len(parts))
-	for _, part := range parts {
-		value := strings.TrimSpace(part)
-		if value == "" {
-			continue
-		}
-		parsed = append(parsed, value)
-	}
-
-	return parsed
 }

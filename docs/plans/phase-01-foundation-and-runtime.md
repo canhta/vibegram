@@ -2,7 +2,7 @@
 
 ## Goal
 
-Create the runnable base of the daemon: module layout, config loading, persistent session state, and a direct runner with least-privilege defaults.
+Create the runnable base of the daemon: module layout, config loading, persistent session state, and a direct PTY runner.
 
 ## Depends on
 
@@ -21,7 +21,6 @@ Create the runnable base of the daemon: module layout, config loading, persisten
 - config loading
 - session and run persistence
 - direct PTY runner
-- sandbox profile model
 
 ## Checklist
 
@@ -40,11 +39,9 @@ Create the runnable base of the daemon: module layout, config loading, persisten
 - [x] Implement file-backed or SQLite-backed state storage
 - [x] Verify restart behavior
 
-### Runner and sandbox
+### Runner
 
 - [x] Write runner tests for process launch, PTY capture, shutdown, and failure detection
 - [x] Implement the direct PTY runner
-- [x] Define sandbox profiles with least-privilege defaults
-- [ ] Keep network disabled by default
 - [x] Expose a clean interface for provider-specific launch args
 - [x] Keep `tmux` out of the critical path
