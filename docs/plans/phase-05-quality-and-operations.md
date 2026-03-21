@@ -38,6 +38,6 @@ Verify the system works end-to-end against real provider sessions and wire it up
 
 ### VPS run
 
-- [ ] Add a `systemd` service unit file (`packaging/vibegram.service`)
+- [x] Add a `systemd` service unit file (`packaging/vibegram.service`)
 - [ ] Verify the daemon starts on boot, restarts on crash, and logs to journald
 - [ ] Document three commands: install, check status, read logs

@@ -33,27 +33,27 @@ Wire the daemon to Telegram both ways: send filtered events to General and sessi
 
 ### Telegram outbound: routing and rendering
 
-- [ ] Write tests for General topic vs session topic routing
-- [ ] Write renderer tests for readable, low-noise output
-- [ ] Implement concise message formatting
-- [ ] Verify Telegram message limits are respected
-- [ ] Implement delivery-ledger checks to prevent duplicate visible sends on restart or replay
+- [x] Write tests for General topic vs session topic routing
+- [x] Write renderer tests for readable, low-noise output
+- [x] Implement concise message formatting
+- [x] Verify Telegram message limits are respected
+- [x] Implement delivery-ledger checks to prevent duplicate visible sends on restart or replay
 
 ### Telegram inbound: 2-way handler
 
 - [ ] Implement long-polling loop for incoming Telegram updates
-- [ ] Map Telegram user IDs to roles: `admin`, `operator`, `observer`
-- [ ] Route incoming session-topic messages to the matching live agent session
-- [ ] Inject authorized human replies into the agent process via PTY stdin
-- [ ] Handle General topic commands: `start <session>`, `stop <session>`, `status`
-- [ ] Reject or log messages from unauthorized users without action
-- [ ] Write tests for inbound routing, authorization, and PTY injection
+- [x] Map Telegram user IDs to roles: `admin`, `operator`, `observer`
+- [x] Route incoming session-topic messages to the matching live agent session
+- [x] Inject authorized human replies into the agent process via PTY stdin
+- [x] Handle General topic commands: `start <session>`, `stop <session>`, `status`
+- [x] Reject or log messages from unauthorized users without action
+- [x] Write tests for inbound routing, authorization, and PTY injection
 
 ### Rolling snapshot
 
-- [ ] Write snapshot update tests for every normalized event type
-- [ ] Implement bounded recent event storage
-- [ ] Implement summary fields for files, tests, blocker, and role activity
+- [x] Write snapshot update tests for every normalized event type
+- [x] Implement bounded recent event storage
+- [x] Implement summary fields for files, tests, blocker, and role activity
 - [ ] Add trust-related fields: `sandbox_profile`, `pending_elevation`, `evidence_refs`
 - [ ] Track session owner and last human actor for auditability
-- [ ] Verify restart persistence and recovery
+- [x] Verify restart persistence and recovery

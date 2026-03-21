@@ -18,8 +18,8 @@ If work is performed against one of these plans, update the relevant checklist i
 
 - [ ] Phase 1: [Foundation and Runtime](./phase-01-foundation-and-runtime.md)
 - [x] Phase 2: [Provider Ingestion and Normalization](./phase-02-provider-ingestion-and-normalization.md)
-- [ ] Phase 3: [Telegram Routing and Session State](./phase-03-telegram-and-session-state.md)
-- [ ] Phase 4: [Roles, Policy, and Memory](./phase-04-roles-policy-and-memory.md)
+- [x] Phase 3: [Telegram Routing and Session State](./phase-03-telegram-and-session-state.md)
+- [x] Phase 4: [Roles, Policy, and Memory](./phase-04-roles-policy-and-memory.md)
 - [ ] Phase 5: [Quality, Release Gate, and VPS Ops](./phase-05-quality-and-operations.md)
 
 ## Reading order

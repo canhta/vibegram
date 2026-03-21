@@ -1,0 +1,16 @@
+[Unit]
+Description=vibegram — Telegram supervision layer for coding agents
+After=network.target
+
+[Service]
+Type=simple
+User=vibegram
+EnvironmentFile=/etc/vibegram/env
+ExecStart=/usr/local/bin/vibegram
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
