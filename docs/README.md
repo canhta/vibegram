@@ -21,6 +21,7 @@ This directory is the source of truth for the first public version of `vibegram`
 15. [Diagrams](./diagrams.md)
 16. [Testing and Evals](./testing-evals.md)
 17. [Implementation Plan](./implementation-plan.md)
+18. [Plan Tracker](./plans/README.md)
 
 ## Supporting artifacts
 

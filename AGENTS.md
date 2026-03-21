@@ -16,7 +16,8 @@ Before changing architecture, product behavior, or implementation plans, read:
 6. [`docs/session-context.md`](/Users/canh/project/oss/vibegram/docs/session-context.md)
 7. [`docs/runtime-ops.md`](/Users/canh/project/oss/vibegram/docs/runtime-ops.md)
 8. [`docs/implementation-plan.md`](/Users/canh/project/oss/vibegram/docs/implementation-plan.md)
-9. [`docs/diagrams.md`](/Users/canh/project/oss/vibegram/docs/diagrams.md)
+9. [`docs/plans/README.md`](/Users/canh/project/oss/vibegram/docs/plans/README.md)
+10. [`docs/diagrams.md`](/Users/canh/project/oss/vibegram/docs/diagrams.md)
 
 Use the deeper research docs only when the task touches those areas:
 
@@ -96,6 +97,11 @@ When changing the design:
 - update the affected topic docs, not just one summary page
 - update [`docs/diagrams.md`](/Users/canh/project/oss/vibegram/docs/diagrams.md) when flows or boundaries change
 - keep schemas in [`docs/schemas/`](/Users/canh/project/oss/vibegram/docs/schemas) aligned with the written design
+
+When executing work from a tracked plan:
+
+- update the relevant checklist in [`docs/plans/`](/Users/canh/project/oss/vibegram/docs/plans) in the same change
+- do not mark a checkbox complete unless the corresponding work and verification are actually done
 
 Do not quietly reintroduce rejected ideas:
 

@@ -73,6 +73,7 @@ The main agent should keep moving without forcing the human to babysit every cla
 - [`docs/README.md`](./docs/README.md): reading order for the design set
 - [`docs/diagrams.md`](./docs/diagrams.md): visual system overview and key flows
 - [`docs/implementation-plan.md`](./docs/implementation-plan.md): proposed first build plan
+- [`docs/plans/README.md`](./docs/plans/README.md): tracked execution phases and checkbox progress
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md): how to contribute without drifting the design
 
 ## Docs

@@ -1,6 +1,6 @@
 # vibegram Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Track progress in the matching files under [`docs/plans/`](./plans/README.md).
 
 **Goal:** Build the first public version of `vibegram`: a single daemon that supervises Codex and Claude Code sessions through Telegram topics with safe support-role automation.
 
@@ -9,6 +9,19 @@
 **Tech Stack:** Go recommended for the daemon, Telegram Bot API, OpenAI Responses API, local SQLite, file-backed Markdown memory, `systemd` for VPS deployment
 
 ---
+
+## Plan breakdown
+
+Tracked execution now lives in multiple phase plans:
+
+1. [Plan Tracker](./plans/README.md)
+2. [Phase 1: Foundation and Runtime](./plans/phase-01-foundation-and-runtime.md)
+3. [Phase 2: Provider Ingestion and Normalization](./plans/phase-02-provider-ingestion-and-normalization.md)
+4. [Phase 3: Telegram Routing and Session State](./plans/phase-03-telegram-and-session-state.md)
+5. [Phase 4: Roles, Policy, and Memory](./plans/phase-04-roles-policy-and-memory.md)
+6. [Phase 5: Quality, Release Gate, and VPS Ops](./plans/phase-05-quality-and-operations.md)
+
+Use this file as the overview and phase map.
 
 ## File structure proposal
 
@@ -28,6 +41,10 @@ internal/app/
 testdata/
 docs/
 ```
+
+## Original task map
+
+The original task list is preserved below as a compact reference so the phase plans can trace back to it.
 
 ## Task 1: Repo bootstrap
 

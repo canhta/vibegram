@@ -13,6 +13,7 @@ Read these first:
 3. [docs/README.md](./docs/README.md)
 4. [docs/decisions.md](./docs/decisions.md)
 5. [docs/implementation-plan.md](./docs/implementation-plan.md)
+6. [docs/plans/README.md](./docs/plans/README.md)
 
 ## What good contributions look like right now
 
@@ -65,3 +66,5 @@ Please include:
 - why it changed
 - which docs or decisions were updated
 - any follow-up work or open questions
+
+If the work maps to a tracked phase plan, update the matching checklist in [docs/plans/](./docs/plans).
