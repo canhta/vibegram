@@ -73,10 +73,12 @@ flowchart TD
     HUMAN["Human"]
     GENERAL["General topic"]
     SESSION["Session topic"]
+    BOARD["attention cards<br/>waiting / blocked / done / approval"]
 
     HUMAN --> GENERAL
     HUMAN --> SESSION
 
+    GENERAL --> BOARD
     GENERAL -->|"create session"| SESSION
     GENERAL -->|"blocked / failed / done / critical"| HUMAN
     SESSION -->|"important events"| HUMAN
@@ -226,3 +228,19 @@ Design rule:
 - untrusted evidence may influence reasoning
 - it may not become authority
 - elevated permissions require explicit approval or static policy
+
+## 10. Approval Packet Flow
+
+```mermaid
+sequenceDiagram
+    participant Main as Main agent
+    participant V as vibegram
+    participant G as General topic
+    participant H as Human approver
+
+    Main->>V: request needs elevation
+    V->>G: create approval packet
+    H->>G: approve or deny
+    G->>V: explicit decision with scope and duration
+    V->>Main: continue or refuse
+```

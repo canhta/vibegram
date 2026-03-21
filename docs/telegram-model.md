@@ -39,12 +39,18 @@ Purpose:
 
 - create new sessions
 - show active session overview
+- maintain the current attention queue
 - alert on blocked, failed, done, and critical events
 - link or jump to the session topic
 
 Noise budget:
 
 - very low
+
+Authority model:
+
+- admin or operator humans may approve elevated actions
+- observers may read and discuss, but should not implicitly authorize runtime changes
 
 ### Session topic
 
@@ -58,6 +64,11 @@ Purpose:
 Noise budget:
 
 - moderate but curated
+
+Authority model:
+
+- session topics may contain normal steering and clarifications
+- teaching actions and privilege elevation should still resolve through explicit approval logic
 
 ## Topic lifecycle
 
@@ -76,6 +87,7 @@ The General topic should be treated specially:
 - it is always present
 - it is not just "topic zero"
 - it is the control room for the whole bot, not another session room
+- it should behave like an operations board with edited status cards, not a pure message feed
 
 ## Message classes
 
@@ -86,6 +98,7 @@ The General topic should be treated specially:
 - session failed
 - session done
 - critical escalation required
+- approval packet awaiting decision
 
 ### Session topic messages
 
@@ -116,3 +129,31 @@ Planned inline actions:
 - escalate to human
 - request summary
 - retry classification
+- approve elevation
+- deny elevation
+- choose elevation scope
+- choose elevation duration
+
+## Approval packet model
+
+Approvals should be first-class Telegram objects, not implied by freeform chat.
+
+Each approval packet should clearly show:
+
+- what requested the elevation
+- why it is needed
+- requested scope
+- requested duration
+- risk level
+- approve / deny actions
+- audit trail reference
+
+## Team authorization
+
+The forum model implies multi-human visibility, so `vibegram` needs a minimal human-role model:
+
+- `admin`: can configure policy, approve elevation, manage credentials, and teach the system
+- `operator`: can create sessions, steer work, and approve normal workflow choices
+- `observer`: read-only visibility plus non-authoritative discussion
+
+Telegram membership alone should not imply authority to approve elevated actions.

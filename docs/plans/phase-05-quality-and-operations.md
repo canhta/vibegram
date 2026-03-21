@@ -30,6 +30,7 @@ Finish the quality bar around the system: evals, smoke tests, and production-rea
 - [ ] Build fixture-driven reply-safety evals
 - [ ] Add provider smoke scripts for Claude
 - [ ] Add provider smoke scripts for Codex
+- [ ] Add authorization, redaction, and idempotent-delivery test coverage to the release gate
 - [ ] Make eval success part of release readiness
 
 ### VPS packaging
@@ -37,4 +38,5 @@ Finish the quality bar around the system: evals, smoke tests, and production-rea
 - [ ] Add a production-ready `systemd` service file
 - [ ] Document install, upgrade, restart, and log access
 - [ ] Document sandbox profile configuration and network allowlists
+- [ ] Document secret handling and service-account permissions
 - [ ] Keep normal setup to a few commands

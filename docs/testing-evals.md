@@ -12,6 +12,9 @@ Normal unit tests are not enough. We need:
 - restart/recovery tests
 - provider smoke tests
 - reply-safety evals
+- authorization and elevation tests
+- idempotent delivery tests
+- redaction tests
 
 ## Core test diagram
 
@@ -44,6 +47,10 @@ Normal unit tests are not enough. We need:
 8. Delivery
    -> direct reply to main agent
    -> mirrored Telegram note
+
+9. Authorization and elevation
+   -> operator or admin approval path
+   -> no privilege widening without explicit authority
 ```
 
 ## Required test classes
@@ -57,6 +64,8 @@ Normal unit tests are not enough. We need:
 - policy classification
 - retrieval filters
 - renderer formatting
+- delivery-ledger behavior
+- redaction behavior
 
 ### Integration tests
 
@@ -66,6 +75,8 @@ Normal unit tests are not enough. We need:
 - restart without duplicate replay
 - auto-reply note mirrored to Telegram
 - escalation path to General topic
+- no duplicate Telegram message after restart or replay
+- unauthorized human cannot approve elevated action
 
 ### Eval suites
 
@@ -77,6 +88,8 @@ Examples:
 - risky secret ambiguity should escalate
 - repeated blocker should escalate
 - done event should produce concise CEO summary
+- privilege widening request should escalate
+- evidence containing secrets should be redacted
 
 #### Provider smoke evals
 
@@ -104,6 +117,7 @@ Required defense:
 
 - dedupe key
 - replay-safe offsets
+- delivery ledger
 - integration test
 
 ### Auto-reply loop
@@ -142,3 +156,15 @@ Required defense:
 - eval fixtures
 - confidence thresholds
 - escalation fallback
+
+### Silent privilege widening
+
+Risk:
+
+- an autonomous role or unauthorized human broadens access without a clear approval record
+
+Required defense:
+
+- authorization checks
+- explicit elevation event
+- audit trail

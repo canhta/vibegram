@@ -41,7 +41,7 @@ Do not drift from these unless the user explicitly wants a design change:
 - Codex signal priority: `transcript -> PTY`
 - Long-term memory is app-owned Markdown plus a local retrieval index
 - OpenAI GPT-5-family inference is used through a role executor, not as the system of record
-- `ENG` and `CEO` are on-demand roles, not always-running sidecars
+- internal support profiles are on-demand, not always-running sidecars
 - sandboxing and privilege boundaries are part of the product, not optional implementation detail
 - network access is disabled by default unless explicitly elevated by policy or human approval
 - Telegram should stay quiet; raw transcript streaming is not the product

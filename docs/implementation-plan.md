@@ -23,6 +23,16 @@ Tracked execution now lives in multiple phase plans:
 
 Use this file as the overview and phase map.
 
+## Release slices
+
+The project should ship in layered executable slices, not as one giant all-or-nothing milestone:
+
+1. executable foundation plus quiet Telegram observability
+2. bounded support actions plus explicit approval packets
+3. hardening, eval gates, memory expansion, and production packaging
+
+The full plan remains intact, but delivery should stay incremental and reversible.
+
 ## File structure proposal
 
 ```text

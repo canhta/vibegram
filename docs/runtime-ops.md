@@ -62,6 +62,12 @@ Recommended config:
 - sandbox profile defaults
 - allowlisted network destinations
 
+Secret-handling requirements:
+
+- bot token and API keys should come from environment or a local secret source, not Markdown memory
+- service files should reference environment files with restrictive permissions
+- secret values should never be mirrored into Telegram or persisted in audit artifacts unless explicitly redacted
+
 ## Observability
 
 Minimum observability:
@@ -70,6 +76,8 @@ Minimum observability:
 - per-session state file
 - per-run metadata file
 - counters for auto-reply, escalation, dedupe, and failure
+- audit trail for approval and elevation decisions
+- delivery-ledger visibility for duplicate suppression debugging
 
 ## Crash recovery
 
@@ -82,6 +90,11 @@ On daemon restart:
 5. avoid replaying stale events
 
 The system should prefer correctness over fancy self-healing.
+
+## Service-account stance
+
+The daemon should run under a dedicated service account with only the workspace and state paths it needs.
+The default system story should not assume broad home-directory access.
 
 ## Sandbox requirement
 

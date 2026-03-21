@@ -34,6 +34,12 @@ What is not here yet:
 - provider fixtures
 - integration tests
 
+The delivery plan is staged:
+
+- executable milestone first
+- bounded automation second
+- harder quality and ops guarantees after the core loop is real
+
 ## What vibegram is
 
 - A single local daemon or VPS service
@@ -41,7 +47,7 @@ What is not here yet:
 - A direct process runner first, with optional `tmux` later if needed
 - A system that supports both Codex and Claude Code
 - A rule-driven event normalizer that turns raw agent output into clean updates
-- A support layer with `ENG` and `CEO` roles that can reply directly to the main agent when safe
+- A bounded support layer that can unblock, summarize, escalate, or ask for human input when safe
 
 ## What vibegram is not
 
@@ -65,7 +71,8 @@ The main agent should keep moving without forcing the human to babysit every cla
 3. App-owned identity. A topic binds to an app session, not a child process.
 4. Markdown memory first. Rules and learned decisions live in files you can inspect and diff.
 5. GPT-5 family for inference. OpenAI Responses features are accelerators, not the source of truth.
-6. Safe automation. `ENG` and `CEO` reply directly only when policy says it is safe.
+6. Safe automation. Support actions reply directly only when policy says it is safe.
+7. Least privilege by default. Network, secrets, and elevated actions stay behind explicit boundaries.
 
 ## Repo map
 

@@ -29,10 +29,11 @@
                     | Provider adapters                 |
                     | Event normalizer                  |
                     | Rolling snapshot store            |
+                    | Delivery ledger                   |
                     | Retrieval index                   |
                     | Policy engine                     |
                     | Trust boundary checks             |
-                    | ENG / CEO role executor           |
+                    | support-profile executor          |
                     +-----------+--------------+--------+
                                 |              |
                     +-----------+              +-----------+
@@ -115,15 +116,27 @@ Responsibilities:
 - return relevant rules/examples quickly
 - keep Markdown as the source of truth
 
-### 6. Policy engine
+### 6. Delivery ledger
+
+Responsibilities:
+
+- enforce idempotent Telegram delivery
+- track which normalized events have already produced visible messages
+- prevent duplicate alerts on restart or multi-source replay
+
+The product promise is low-noise supervision.
+Without a delivery ledger, replay-safe offsets alone are not enough.
+
+### 7. Policy engine
 
 Responsibilities:
 
 - decide whether to render, auto-reply, escalate, or ignore
-- choose `ENG` or `CEO`
+- choose the right internal support profile
 - enforce retry ceilings and escalation rules
+- enforce authorization and elevation rules
 
-### 7. Telegram renderer
+### 8. Telegram renderer
 
 Responsibilities:
 
@@ -139,6 +152,7 @@ provider signal
    -> normalized event
    -> dedupe
    -> snapshot update
+   -> delivery ledger check
    -> routing decision
       -> General topic
       -> session topic
@@ -173,12 +187,16 @@ index/
   retrieval.db
 logs/
   daemon.log
+artifacts/
+  evidence/
+    <event_id>.json
 ```
 
 ## Failure philosophy
 
 - visible failure is better than silent failure
 - dedupe aggressively
+- make visible delivery idempotent
 - retries are bounded
 - automation stops and escalates when uncertainty rises
 - the daemon owns orchestration, not recovery magic

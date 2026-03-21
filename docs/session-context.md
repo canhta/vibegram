@@ -37,6 +37,9 @@ Recommended fields:
 - `sandbox_profile`
 - `pending_elevation`
 - `evidence_refs`
+- `owner_user_id`
+- `last_human_actor_id`
+- `delivery_state`
 
 ## Why not transcript-only
 
@@ -45,6 +48,7 @@ Transcript-only context makes every reply expensive and ambiguous:
 - too much rereading
 - too much provider-specific parsing at decision time
 - harder to debug why the system replied the way it did
+- easier to accidentally lose who approved what
 
 ## Long-term learning model
 

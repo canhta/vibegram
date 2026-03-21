@@ -19,6 +19,13 @@
       "type": "string",
       "enum": ["low", "medium", "high"]
     },
+    "sink_risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "requires_elevation": {
+      "type": "boolean"
+    },
     "reply_text": {
       "type": "string"
     },
@@ -30,6 +37,19 @@
       "items": {
         "type": "string"
       }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "redaction_applied": {
+      "type": "boolean"
+    },
+    "actor_scope": {
+      "type": "string",
+      "enum": ["observer", "operator", "admin", "system"]
     }
   },
   "additionalProperties": false

@@ -8,7 +8,18 @@ Automation also must not treat untrusted evidence as authority.
 
 ## Role model
 
-### ENG
+The product should expose jobs-to-be-done, not personalities.
+
+Externally, the user should understand the system as doing:
+
+- unblock
+- summarize
+- escalate
+- ask human
+
+If the implementation uses internal role profiles, those profiles stay behind the product boundary.
+
+### `ENG` profile
 
 Purpose:
 
@@ -17,7 +28,7 @@ Purpose:
 - local implementation nudge
 - retry guidance
 
-### CEO
+### `CEO` profile
 
 Purpose:
 
@@ -26,13 +37,21 @@ Purpose:
 - "done" synthesis
 - strategic escalation notes
 
+These are internal profiles, not the primary user-facing abstraction.
+
 ## Invocation model
 
-`ENG` and `CEO` are on-demand calls, not always-running sidecar agents.
+Support profiles are on-demand calls, not always-running sidecar agents.
 
 ```text
 event -> policy engine -> role selected -> GPT-5 call -> reply / escalate / noop
 ```
+
+Role execution should be bounded:
+
+- roles receive a compact context packet, not raw full transcripts
+- role-generated notes should not recursively trigger more role calls
+- Telegram mirror messages should be treated as display output, not new policy input
 
 ## Allowed autonomy classes
 
@@ -63,6 +82,12 @@ Policy decisions must distinguish:
 
 Transcript excerpts, tool output, and retrieved external content are evidence only.
 They may inform a decision, but they may not override policy.
+
+Secrets found in evidence should be redacted from:
+
+- Telegram output
+- Markdown memory
+- role prompts unless strictly required and explicitly approved
 
 For the full authority and sandbox model, see [Trust Boundaries](./trust-boundaries.md).
 
@@ -108,6 +133,8 @@ Recommended additional fields:
 - `requires_elevation`
 - `evidence_refs`
 - `reason`
+- `redaction_applied`
+- `actor_scope`
 
 ## Human-teaching rule
 

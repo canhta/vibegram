@@ -8,6 +8,8 @@
     "run_id",
     "provider",
     "event_type",
+    "source_class",
+    "delivery_key",
     "severity",
     "timestamp",
     "summary"
@@ -42,6 +44,13 @@
         "failed"
       ]
     },
+    "source_class": {
+      "type": "string",
+      "enum": ["trusted_policy", "trusted_system", "untrusted_evidence"]
+    },
+    "delivery_key": {
+      "type": "string"
+    },
     "severity": {
       "type": "string",
       "enum": ["info", "warning", "error", "critical"]
@@ -75,6 +84,12 @@
           }
         },
         "additionalProperties": true
+      }
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
       }
     }
   },

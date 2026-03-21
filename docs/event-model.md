@@ -50,6 +50,8 @@ Every normalized event should preserve provenance.
 Minimum v1 field:
 
 - `source_class`: `trusted_policy` | `trusted_system` | `untrusted_evidence`
+- `delivery_key`: stable idempotency key for user-visible rendering
+- `artifact_refs`: optional references to stored evidence blobs or snippets
 
 ### `phase_changed`
 
@@ -98,6 +100,7 @@ Keep compact:
   "provider": "codex",
   "event_type": "blocked",
   "source_class": "untrusted_evidence",
+  "delivery_key": "ses_01JXYZ:blocked:abc123",
   "severity": "warning",
   "timestamp": "2026-03-21T10:00:00Z",
   "summary": "Agent is blocked on a missing environment variable.",
@@ -112,7 +115,8 @@ Keep compact:
       "provider_type": "response_item",
       "provider_id": "abc123"
     }
-  ]
+  ],
+  "artifact_refs": ["art_evt_01JXYZ"]
 }
 ```
 
@@ -121,3 +125,4 @@ Keep compact:
 - one event should produce at most one primary visible message
 - renderer text is based on normalized `summary` and selected details
 - raw evidence should remain available for future artifact work, not as default output
+- renderers should use `delivery_key` or equivalent idempotency state to avoid duplicate visible sends

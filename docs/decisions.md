@@ -8,7 +8,8 @@ This file records the major product and engineering decisions already made.
 2. Surface: Telegram Forum with one General topic plus per-session topics
 3. Goal: quiet supervision, not terminal mirroring
 4. Human role: only critical items require a human
-5. Support roles: `ENG` and `CEO` may reply directly to the main agent when safe
+5. User-facing support actions are `unblock`, `summarize`, `escalate`, and `ask human`
+6. Any `ENG` / `CEO` style role naming is internal implementation detail
 
 ## Runtime
 

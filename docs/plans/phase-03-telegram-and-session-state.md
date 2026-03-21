@@ -23,6 +23,7 @@ Render the normalized event stream into a calm Telegram workflow and keep a dura
 - session topic routing
 - concise Telegram renderer
 - rolling session snapshot store
+- delivery ledger for idempotent visible sends
 
 ## Checklist
 
@@ -32,6 +33,7 @@ Render the normalized event stream into a calm Telegram workflow and keep a dura
 - [ ] Write renderer tests for readable, low-noise output
 - [ ] Implement concise message formatting
 - [ ] Verify Telegram message and callback limits are respected
+- [ ] Implement delivery-ledger checks to prevent duplicate visible sends
 
 ### Rolling snapshot
 
@@ -39,4 +41,5 @@ Render the normalized event stream into a calm Telegram workflow and keep a dura
 - [ ] Implement bounded recent event storage
 - [ ] Implement summary fields for files, tests, blocker, and role activity
 - [ ] Add trust-related fields such as `sandbox_profile`, `pending_elevation`, and `evidence_refs`
+- [ ] Track session owner and last human actor for auditability
 - [ ] Verify restart persistence and recovery

@@ -2,7 +2,7 @@
 
 ## One-line product definition
 
-`vibegram` is a Telegram-native control room for autonomous coding sessions.
+`vibegram` is a Telegram-native supervision layer for long-running coding sessions.
 
 ## Problem
 
@@ -19,9 +19,9 @@ The current market failure is not "we need more agents." It is:
 
 The user starts or monitors work from Telegram.
 
-- The General topic shows overall activity and only important alerts.
+- The General topic works like a calm attention board, not a noisy chat stream.
 - Each session topic shows a concise timeline for that session.
-- When the main agent asks something safe and local, `ENG` or `CEO` can answer directly.
+- When the main agent asks something safe and local, a bounded support action can answer directly.
 - When the question is risky, repeated, ambiguous, or strategic, the human is pulled in.
 
 ## Product wedge
@@ -46,6 +46,17 @@ The first wedge is:
 - wants strategic summaries and escalation on critical items
 - wants automation to handle low-value back-and-forth
 
+## Internal implementation detail
+
+The repo may use different internal support profiles for different jobs, but the user-facing product abstraction should stay simple:
+
+- unblock
+- summarize
+- escalate
+- ask human
+
+Persona names like `ENG` and `CEO` are implementation detail, not the product wedge.
+
 ## Non-goals
 
 - full multi-user enterprise permissions
@@ -57,8 +68,14 @@ The first wedge is:
 ## Success criteria for v1
 
 - A user can run the system on a VPS with one service unit.
-- Telegram General topic stays low-noise.
+- Telegram General topic behaves like a low-noise attention board.
 - Session topics are readable and useful.
 - Codex and Claude Code both work under the same app-owned session model.
-- `ENG` and `CEO` can safely auto-reply on a bounded set of unblockers.
-- Human-taught decisions are captured into Markdown and reused on future sessions.
+- A bounded support action can safely auto-reply on a small set of unblockers.
+- Elevated actions require explicit approval packets with auditability.
+
+## Post-v1 expansion
+
+- richer support-profile specialization
+- decision reuse from Markdown memory
+- stronger teaching and promotion workflows
