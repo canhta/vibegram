@@ -28,10 +28,10 @@ Turn provider-specific signals into one clean, deduped, provenance-aware event s
 
 ### Provider adapters
 
-- [ ] Write parser fixtures for Claude hooks and transcripts
-- [ ] Write parser fixtures for Codex transcripts
-- [ ] Implement raw observation emission for Claude
-- [ ] Implement raw observation emission for Codex
+- [x] Write parser fixtures for Claude hooks and transcripts
+- [x] Write parser fixtures for Codex transcripts
+- [x] Implement raw observation emission for Claude
+- [x] Implement raw observation emission for Codex
 - [x] Implement signal priority rules for both providers
 - [x] Verify duplicate raw observations remain distinguishable before normalization
 

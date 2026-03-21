@@ -1,0 +1,8 @@
+{
+  "session_id": "claude_sess_abc123",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {"command": "ls -la internal/"},
+  "tool_response": {"output": "total 8\ndrwxr-xr-x 4 user user 128 Mar 21 10:00 .\n"},
+  "timestamp": "2026-03-21T10:00:00Z"
+}

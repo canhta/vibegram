@@ -1,0 +1,5 @@
+{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I'll list the files in the current directory."}]}
+{"type":"function_call","name":"shell","call_id":"call_001","arguments":"{\"command\":\"ls -la\"}"}
+{"type":"function_call_output","call_id":"call_001","output":"total 8\ndrwxr-xr-x 4 user user 128 Mar 21 10:00 .\n"}
+{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Which test framework should I use for this project?"}]}
+{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I'm stuck because the test command is failing with a permission error."}]}
