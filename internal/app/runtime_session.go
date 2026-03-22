@@ -65,6 +65,7 @@ func (r *Runtime) launchDraftSession(ctx context.Context, chatID, userID int64, 
 		return fmt.Errorf("send session summary: %w", err)
 	}
 
+	r.wg.Add(1)
 	go r.finishStart(ctx, chatID, threadID, session, run, goal)
 	return nil
 }
@@ -150,6 +151,7 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 }
 
 func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, goal string) {
+	defer r.wg.Done()
 	runner := r.runnerForProvider(session.Provider)
 	if runner == nil {
 		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: unknown provider "+session.Provider)

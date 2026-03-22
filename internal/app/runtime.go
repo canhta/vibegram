@@ -57,7 +57,11 @@ type Runtime struct {
 	sessionsByThread map[int]state.SessionID
 	draftsByUser     map[int64]generalDraft
 	mu               sync.RWMutex
+	wg               sync.WaitGroup
 }
+
+// Wait blocks until all background goroutines launched by the Runtime have finished.
+func (r *Runtime) Wait() { r.wg.Wait() }
 
 func NewRuntime(cfg config.Config, store *state.Store, bot botClient, codex sessionRunner, claude sessionRunner, policy policyEngine, support supportResponder) *Runtime {
 	rt := &Runtime{

@@ -109,7 +109,7 @@ func TestRuntimeGeneralWizardLaunchPersistsRunBeforeProviderFinishes(t *testing.
 	}
 
 	close(codex.startRelease)
-	time.Sleep(50 * time.Millisecond)
+	rt.Wait()
 }
 
 func TestShortTopicCodeUsesLastFourDigitsOfSessionID(t *testing.T) {
@@ -453,6 +453,8 @@ func TestRuntimeGeneralWizardLaunchStreamsFilteredCodexEventsBeforeProviderFinis
 	case <-time.After(1 * time.Second):
 		t.Fatal("HandleUpdate() did not finish after start release")
 	}
+
+	rt.Wait()
 }
 
 func TestRuntimeGeneralWizardLaunchReportsCreateTopicFailureWithoutCrashing(t *testing.T) {
