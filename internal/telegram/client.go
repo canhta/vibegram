@@ -22,7 +22,7 @@ type Update struct {
 }
 
 type UpdateMessage struct {
-	MessageID int   `json:"message_id"`
+	MessageID int `json:"message_id"`
 	UserID    int64
 	ChatID    int64
 	ThreadID  int
@@ -59,8 +59,8 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64) ([]Update, error)
 		Result []struct {
 			UpdateID int64 `json:"update_id"`
 			Message  struct {
-				MessageID       int `json:"message_id"`
-				MessageThreadID int `json:"message_thread_id"`
+				MessageID       int    `json:"message_id"`
+				MessageThreadID int    `json:"message_thread_id"`
 				Text            string `json:"text"`
 				From            struct {
 					ID int64 `json:"id"`
@@ -133,6 +133,22 @@ func (c *Client) CreateForumTopic(ctx context.Context, chatID int64, name string
 	}
 
 	return resp.Result.MessageThreadID, nil
+}
+
+func (c *Client) DeleteForumTopic(ctx context.Context, chatID int64, threadID int) error {
+	req, err := c.newJSONRequest(ctx, "/deleteForumTopic", map[string]any{
+		"chat_id":           chatID,
+		"message_thread_id": threadID,
+	})
+	if err != nil {
+		return err
+	}
+
+	var resp struct {
+		OK     bool `json:"ok"`
+		Result bool `json:"result"`
+	}
+	return c.doJSON(req, &resp)
 }
 
 func (c *Client) newJSONRequest(ctx context.Context, path string, body any) (*http.Request, error) {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,10 +16,10 @@ import (
 )
 
 type App struct {
-	cfg   config.Config
-	store *state.Store
-	bot   botClient
-	codex codexSessionRunner
+	cfg    config.Config
+	store  *state.Store
+	bot    botClient
+	codex  codexSessionRunner
 	policy policyEngine
 }
 
@@ -37,10 +38,10 @@ func New(cfg config.Config) (*App, error) {
 	}
 
 	return &App{
-		cfg:   cfg,
-		store: state.NewStore(cfg.Runtime.StateDir),
-		bot:   telegram.NewClient(cfg.Telegram.BotToken, ""),
-		codex: codexprovider.NewSessionRunner(runner.New(), cfg.Providers.CodexCommand, cfg.Runtime.WorkRoot),
+		cfg:    cfg,
+		store:  state.NewStore(cfg.Runtime.StateDir),
+		bot:    telegram.NewClient(cfg.Telegram.BotToken, ""),
+		codex:  codexprovider.NewSessionRunner(runner.New(), cfg.Providers.CodexCommand, cfg.Runtime.WorkRoot),
 		policy: engine,
 	}, nil
 }
@@ -55,7 +56,13 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	runtime := NewRuntime(a.cfg, a.store, a.bot, a.codex, a.policy)
-	var offset int64
+	offset, err := a.store.LoadCursor("telegram_updates")
+	if err != nil {
+		if !errors.Is(err, state.ErrNotFound) {
+			return err
+		}
+		offset = 0
+	}
 
 	for {
 		select {
@@ -86,6 +93,9 @@ func (a *App) Run(ctx context.Context) error {
 				offset = update.UpdateID + 1
 			}
 			if err := runtime.HandleUpdate(ctx, update); err != nil {
+				return err
+			}
+			if err := a.store.SaveCursor("telegram_updates", offset); err != nil {
 				return err
 			}
 		}

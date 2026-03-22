@@ -113,3 +113,32 @@ func TestClientCreateForumTopicReturnsThreadID(t *testing.T) {
 		t.Fatalf("threadID = %d, want 42", threadID)
 	}
 }
+
+func TestClientDeleteForumTopicUsesThreadID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bottest-token/deleteForumTopic" {
+			t.Fatalf("Path = %q, want %q", r.URL.Path, "/bottest-token/deleteForumTopic")
+		}
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+
+		if body["chat_id"] != float64(-100123) {
+			t.Fatalf("chat_id = %v, want -100123", body["chat_id"])
+		}
+		if body["message_thread_id"] != float64(42) {
+			t.Fatalf("message_thread_id = %v, want 42", body["message_thread_id"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token", server.URL)
+	if err := client.DeleteForumTopic(context.Background(), -100123, 42); err != nil {
+		t.Fatalf("DeleteForumTopic() error = %v", err)
+	}
+}
