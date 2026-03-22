@@ -53,6 +53,26 @@ The checked-in `systemd` unit now uses `StateDirectory=vibegram` and pins:
 
 Secrets and provider commands should still come from `/etc/vibegram/env`.
 
+## Bootstrap flow
+
+The default Ubuntu or VPS path should be:
+
+```bash
+sudo vibegram init
+sudo vibegram service install
+sudo vibegram service start
+sudo vibegram service status
+sudo vibegram service logs
+```
+
+Behavior:
+
+- `vibegram init` interactively writes `/etc/vibegram/env`
+- `vibegram service install` writes `/etc/systemd/system/vibegram.service` and runs `systemctl daemon-reload`
+- `vibegram service start` enables and starts the unit
+- `vibegram service status` shells out to `systemctl status vibegram --no-pager`
+- `vibegram service logs` shells out to `journalctl -u vibegram -n 200 --no-pager`
+
 ## Config surface
 
 Recommended config:

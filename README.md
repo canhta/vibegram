@@ -134,6 +134,26 @@ Local run command:
 go run ./cmd/vibegram
 ```
 
+## Ubuntu Setup
+
+For a normal Ubuntu or VPS install, the intended flow is now:
+
+```bash
+sudo vibegram init
+sudo vibegram service install
+sudo vibegram service start
+sudo vibegram service status
+sudo vibegram service logs
+```
+
+What those do:
+
+- `vibegram init` asks for Telegram and provider settings, then writes `/etc/vibegram/env`
+- `vibegram service install` creates the systemd unit and reloads systemd
+- `vibegram service start` runs `systemctl enable --now vibegram`
+- `vibegram service status` shows the current unit status
+- `vibegram service logs` shows recent journald logs
+
 Current bootstrap environment variables:
 
 - `VIBEGRAM_TELEGRAM_BOT_TOKEN`

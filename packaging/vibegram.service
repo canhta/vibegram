@@ -10,7 +10,7 @@ WorkingDirectory=/var/lib/vibegram
 Environment=VIBEGRAM_WORK_ROOT=/var/lib/vibegram
 Environment=VIBEGRAM_STATE_DIR=/var/lib/vibegram/state
 EnvironmentFile=/etc/vibegram/env
-ExecStart=/usr/local/bin/vibegram
+ExecStart=/usr/local/bin/vibegram daemon --env-file /etc/vibegram/env
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal

@@ -41,8 +41,21 @@ type RuntimeConfig struct {
 }
 
 func LoadFromEnv() (Config, error) {
-	if err := loadDotEnv(".env"); err != nil {
-		return Config{}, err
+	return loadConfig([]string{".env"}, false)
+}
+
+func LoadFromEnvFile(path string) (Config, error) {
+	return loadConfig([]string{path}, true)
+}
+
+func loadConfig(envFiles []string, override bool) (Config, error) {
+	for _, path := range envFiles {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if err := loadDotEnv(path, override); err != nil {
+			return Config{}, err
+		}
 	}
 
 	botToken, err := requiredStringEnv("VIBEGRAM_TELEGRAM_BOT_TOKEN")
@@ -183,7 +196,7 @@ func envOrDefault(key, fallback string) string {
 	return value
 }
 
-func loadDotEnv(path string) error {
+func loadDotEnv(path string, override bool) error {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -206,7 +219,10 @@ func loadDotEnv(path string) error {
 		}
 
 		key = strings.TrimSpace(key)
-		if key == "" || os.Getenv(key) != "" {
+		if key == "" {
+			continue
+		}
+		if !override && os.Getenv(key) != "" {
 			continue
 		}
 
