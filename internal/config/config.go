@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,11 +19,14 @@ type Config struct {
 type TelegramConfig struct {
 	BotToken    string
 	ForumChatID int64
+	AdminIDs    []int64
+	OperatorIDs []int64
 }
 
 type OpenAIConfig struct {
-	APIKey string
-	Model  string
+	APIKey  string
+	Model   string
+	BaseURL string
 }
 
 type ProviderConfig struct {
@@ -37,6 +41,10 @@ type RuntimeConfig struct {
 }
 
 func LoadFromEnv() (Config, error) {
+	if err := loadDotEnv(".env"); err != nil {
+		return Config{}, err
+	}
+
 	botToken, err := requiredStringEnv("VIBEGRAM_TELEGRAM_BOT_TOKEN")
 	if err != nil {
 		return Config{}, err
@@ -57,14 +65,27 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, err
 	}
 
+	adminIDs, err := optionalInt64ListEnv("VIBEGRAM_TELEGRAM_ADMIN_IDS")
+	if err != nil {
+		return Config{}, err
+	}
+
+	operatorIDs, err := optionalInt64ListEnv("VIBEGRAM_TELEGRAM_OPERATOR_IDS")
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Telegram: TelegramConfig{
 			BotToken:    botToken,
 			ForumChatID: forumChatID,
+			AdminIDs:    adminIDs,
+			OperatorIDs: operatorIDs,
 		},
 		OpenAI: OpenAIConfig{
-			APIKey: os.Getenv("OPENAI_API_KEY"),
-			Model:  envOrDefault("VIBEGRAM_OPENAI_MODEL", "gpt-5"),
+			APIKey:  os.Getenv("OPENAI_API_KEY"),
+			Model:   envOrDefault("VIBEGRAM_OPENAI_MODEL", "gpt-5"),
+			BaseURL: envOrDefault("VIBEGRAM_OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		},
 		Providers: ProviderConfig{
 			ClaudeCommand: os.Getenv("VIBEGRAM_PROVIDER_CLAUDE_CMD"),
@@ -99,6 +120,30 @@ func requiredInt64Env(key string) (int64, error) {
 	}
 
 	return parsed, nil
+}
+
+func optionalInt64ListEnv(key string) ([]int64, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(value, ",")
+	ids := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		parsed, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be a comma-separated list of int64 values: %w", key, err)
+		}
+		ids = append(ids, parsed)
+	}
+
+	return ids, nil
 }
 
 func runtimeWorkRoot() (string, error) {
@@ -136,4 +181,50 @@ func envOrDefault(key, fallback string) string {
 	}
 
 	return value
+}
+
+func loadDotEnv(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+
+		key = strings.TrimSpace(key)
+		if key == "" || os.Getenv(key) != "" {
+			continue
+		}
+
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 {
+			if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("set %s from %s: %w", key, path, err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scan %s: %w", path, err)
+	}
+
+	return nil
 }

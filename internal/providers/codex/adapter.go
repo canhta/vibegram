@@ -85,7 +85,7 @@ func (a *Adapter) ParseTranscriptLine(ts time.Time, data []byte) (providers.RawO
 		}
 		for _, block := range item.Content {
 			if block.Type == "output_text" && block.Text != "" {
-				rawType := classifyText(block.Text)
+				rawType := ClassifyText(block.Text)
 				if rawType != "" {
 					return providers.RawObservation{
 						Observation: events.Observation{
@@ -109,7 +109,7 @@ func (a *Adapter) ParseTranscriptLine(ts time.Time, data []byte) (providers.RawO
 }
 
 // classifyText returns the raw event type for a text string, or "" if not interesting.
-func classifyText(text string) string {
+func ClassifyText(text string) string {
 	lower := strings.ToLower(strings.TrimSpace(text))
 	if lower == "" {
 		return ""

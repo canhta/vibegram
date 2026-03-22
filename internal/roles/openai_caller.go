@@ -7,15 +7,25 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 type OpenAICaller struct {
-	APIKey string
-	Model  string
+	APIKey  string
+	Model   string
+	BaseURL string
 }
 
-func NewOpenAICaller(apiKey, model string) *OpenAICaller {
-	return &OpenAICaller{APIKey: apiKey, Model: model}
+func NewOpenAICaller(apiKey, model, baseURL string) *OpenAICaller {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+
+	return &OpenAICaller{
+		APIKey:  apiKey,
+		Model:   model,
+		BaseURL: strings.TrimRight(baseURL, "/"),
+	}
 }
 
 func (c *OpenAICaller) Call(ctx context.Context, prompt string) (string, error) {
@@ -29,7 +39,7 @@ func (c *OpenAICaller) Call(ctx context.Context, prompt string) (string, error) 
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/responses", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/responses", bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
