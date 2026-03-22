@@ -112,6 +112,23 @@ func TestRuntimeGeneralWizardLaunchPersistsRunBeforeProviderFinishes(t *testing.
 	time.Sleep(50 * time.Millisecond)
 }
 
+func TestShortTopicCodeUsesLastFourDigitsOfSessionID(t *testing.T) {
+	got := shortTopicCode("ses_1774171206463341651")
+	if got != "1651" {
+		t.Fatalf("shortTopicCode() = %q, want %q", got, "1651")
+	}
+}
+
+func TestTopicNameForDraftUsesFolderProviderAndShortCode(t *testing.T) {
+	got := topicNameForDraft(generalDraft{
+		Provider: "codex",
+		WorkRoot: "/Users/canh/Desktop",
+	}, "1651")
+	if got != "Desktop codex 1651" {
+		t.Fatalf("topicNameForDraft() = %q, want %q", got, "Desktop codex 1651")
+	}
+}
+
 func TestRuntimeGeneralWizardCanLaunchClaude(t *testing.T) {
 	projectRoot := t.TempDir()
 	projectX := filepath.Join(projectRoot, "project-x")

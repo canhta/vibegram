@@ -17,6 +17,7 @@ import (
 
 type botClient interface {
 	GetUpdates(ctx context.Context, offset int64) ([]telegram.Update, error)
+	SetCommands(ctx context.Context, chatID int64, commands []telegram.BotCommand) error
 	SendMessage(ctx context.Context, chatID int64, threadID *int, text string) error
 	SendMessageCard(ctx context.Context, chatID int64, threadID *int, text string, markup telegram.InlineKeyboardMarkup) (int, error)
 	EditMessageCard(ctx context.Context, chatID int64, messageID int, text string, markup telegram.InlineKeyboardMarkup) error

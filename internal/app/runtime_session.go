@@ -15,13 +15,13 @@ import (
 
 func (r *Runtime) launchDraftSession(ctx context.Context, chatID, userID int64, draft generalDraft) error {
 	goal := draft.launchPrompt()
-	threadID, err := r.bot.CreateForumTopic(ctx, chatID, topicNameForDraft(draft))
+	sessionID := state.SessionID(makeID("ses"))
+	runID := state.RunID(makeID("run"))
+	topicName := topicNameForDraft(draft, shortTopicCode(sessionID))
+	threadID, err := r.bot.CreateForumTopic(ctx, chatID, topicName)
 	if err != nil {
 		return fmt.Errorf("create forum topic: %w", err)
 	}
-
-	sessionID := state.SessionID(makeID("ses"))
-	runID := state.RunID(makeID("run"))
 	now := time.Now().UTC()
 
 	session := state.Session{
@@ -58,7 +58,7 @@ func (r *Runtime) launchDraftSession(ctx context.Context, chatID, userID int64, 
 	r.sessionsByThread[threadID] = sessionID
 	r.mu.Unlock()
 
-	if err := r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("Session started: %s", topicNameForDraft(draft))); err != nil {
+	if err := r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("Session started: %s", topicName)); err != nil {
 		return fmt.Errorf("send general start notice: %w", err)
 	}
 	if err := r.bot.SendMessage(ctx, chatID, &threadID, renderSessionStartSummary(draft)); err != nil {
@@ -292,7 +292,7 @@ func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, thre
 	return r.deliverSessionResult(ctx, chatID, threadID, session, replyRun, replyResult, nil, false)
 }
 
-func topicNameForDraft(draft generalDraft) string {
+func topicNameForDraft(draft generalDraft, shortCode string) string {
 	folder := strings.TrimSpace(filepath.Base(strings.TrimSpace(draft.WorkRoot)))
 	if folder == "" || folder == "." || folder == string(filepath.Separator) {
 		folder = "session"
@@ -301,12 +301,40 @@ func topicNameForDraft(draft generalDraft) string {
 	if provider == "" {
 		provider = "agent"
 	}
-	title := strings.Join([]string{folder, provider, time.Now().Format("1504")}, " ")
+	if shortCode == "" {
+		shortCode = "0000"
+	}
+	suffix := strings.Join([]string{provider, shortCode}, " ")
+	maxFolderLen := 64 - len(suffix) - 1
+	if maxFolderLen < 1 {
+		maxFolderLen = 1
+	}
+	if len(folder) > maxFolderLen {
+		folder = folder[:maxFolderLen]
+	}
+	title := strings.Join([]string{folder, suffix}, " ")
 	title = strings.Join(strings.Fields(title), " ")
 	if len(title) > 64 {
 		title = title[:64]
 	}
 	return title
+}
+
+func shortTopicCode(sessionID state.SessionID) string {
+	raw := string(sessionID)
+	digits := make([]rune, 0, len(raw))
+	for _, ch := range raw {
+		if ch >= '0' && ch <= '9' {
+			digits = append(digits, ch)
+		}
+	}
+	if len(digits) == 0 {
+		return "0000"
+	}
+	if len(digits) >= 4 {
+		return string(digits[len(digits)-4:])
+	}
+	return fmt.Sprintf("%04s", string(digits))
 }
 
 func renderSessionStartSummary(draft generalDraft) string {

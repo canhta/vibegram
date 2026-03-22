@@ -316,3 +316,45 @@ func TestClientDeleteForumTopicUsesThreadID(t *testing.T) {
 		t.Fatalf("DeleteForumTopic() error = %v", err)
 	}
 }
+
+func TestClientSetCommandsUsesChatScope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bottest-token/setMyCommands" {
+			t.Fatalf("Path = %q, want %q", r.URL.Path, "/bottest-token/setMyCommands")
+		}
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+
+		commands, ok := body["commands"].([]any)
+		if !ok || len(commands) != 3 {
+			t.Fatalf("commands = %v, want 3 commands", body["commands"])
+		}
+		scope, ok := body["scope"].(map[string]any)
+		if !ok {
+			t.Fatalf("scope = %T, want object", body["scope"])
+		}
+		if scope["type"] != "chat" {
+			t.Fatalf("scope.type = %v, want chat", scope["type"])
+		}
+		if scope["chat_id"] != float64(-100123) {
+			t.Fatalf("scope.chat_id = %v, want -100123", scope["chat_id"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token", server.URL)
+	err := client.SetCommands(context.Background(), -100123, []BotCommand{
+		{Command: "new", Description: "Start a new session"},
+		{Command: "status", Description: "Show current status"},
+		{Command: "cleanup", Description: "Delete session topics"},
+	})
+	if err != nil {
+		t.Fatalf("SetCommands() error = %v", err)
+	}
+}

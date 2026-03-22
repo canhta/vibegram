@@ -29,3 +29,8 @@ type InlineKeyboardButton struct {
 type InlineKeyboardMarkup struct {
 	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
 }
+
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}

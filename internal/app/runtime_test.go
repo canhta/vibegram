@@ -22,6 +22,7 @@ type fakeBotClient struct {
 	sent              []sentMessage
 	edited            []editedMessage
 	answeredCallbacks []answeredCallback
+	setCommandsCalls  []setCommandsCall
 	nextThreadID      int
 	nextMessageID     int
 	updates           []telegram.Update
@@ -48,6 +49,11 @@ type editedMessage struct {
 type answeredCallback struct {
 	id   string
 	text string
+}
+
+type setCommandsCall struct {
+	chatID   int64
+	commands []telegram.BotCommand
 }
 
 func (f *fakeBotClient) CreateForumTopic(ctx context.Context, chatID int64, name string) (int, error) {
@@ -106,6 +112,15 @@ func (f *fakeBotClient) DeleteForumTopic(ctx context.Context, chatID int64, thre
 	return nil
 }
 
+func (f *fakeBotClient) SetCommands(ctx context.Context, chatID int64, commands []telegram.BotCommand) error {
+	dup := append([]telegram.BotCommand(nil), commands...)
+	f.setCommandsCalls = append(f.setCommandsCalls, setCommandsCall{
+		chatID:   chatID,
+		commands: dup,
+	})
+	return nil
+}
+
 func (f *fakeBotClient) GetUpdates(ctx context.Context, offset int64) ([]telegram.Update, error) {
 	var updates []telegram.Update
 	for _, update := range f.updates {
@@ -117,17 +132,17 @@ func (f *fakeBotClient) GetUpdates(ctx context.Context, offset int64) ([]telegra
 }
 
 type fakeCodexSessionRunner struct {
-	startPrompt     string
-	startWorkDir    string
-	resumeSessionID string
-	resumePrompt    string
-	resumeWorkDir   string
+	startPrompt       string
+	startWorkDir      string
+	resumeSessionID   string
+	resumePrompt      string
+	resumeWorkDir     string
 	startStreamLines  []string
 	resumeStreamLines []string
-	startResult     codexprovider.SessionResult
-	resumeResult    codexprovider.SessionResult
-	startRelease    chan struct{}
-	startCalled     chan struct{}
+	startResult       codexprovider.SessionResult
+	resumeResult      codexprovider.SessionResult
+	startRelease      chan struct{}
+	startCalled       chan struct{}
 }
 
 type fakePolicyEngine struct {

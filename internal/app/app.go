@@ -63,6 +63,9 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.store.Init(); err != nil {
 		return err
 	}
+	if err := a.registerTelegramCommands(ctx); err != nil {
+		return err
+	}
 
 	runtime := NewRuntime(a.cfg, a.store, a.bot, a.codex, a.claude, a.policy, a.support)
 	offset, err := a.store.LoadCursor("telegram_updates")
@@ -109,6 +112,22 @@ func (a *App) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (a *App) registerTelegramCommands(ctx context.Context) error {
+	if a.bot == nil {
+		return nil
+	}
+
+	err := a.bot.SetCommands(ctx, a.cfg.Telegram.ForumChatID, []telegram.BotCommand{
+		{Command: "new", Description: "Start a new session"},
+		{Command: "status", Description: "Show current status"},
+		{Command: "cleanup", Description: "Delete session topics"},
+	})
+	if err != nil && ctx.Err() != nil {
+		return nil
+	}
+	return err
 }
 
 func resolveCommandPath(configured, fallback string) string {
