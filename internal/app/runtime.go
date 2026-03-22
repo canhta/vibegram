@@ -144,10 +144,10 @@ func (r *Runtime) handleGeneralTopic(ctx context.Context, chatID, userID int64, 
 		return r.startGeneralDraft(ctx, chatID, userID)
 
 	case text == "cleanup":
-		return r.bot.SendMessage(ctx, chatID, nil, "Usage: /cleanup <topic_id[,topic_id]> or /cleanup all")
+		return r.showCleanupPicker(ctx, chatID)
 
 	case strings.HasPrefix(text, "cleanup "):
-		return r.cleanupTopics(ctx, chatID, strings.TrimSpace(strings.TrimPrefix(text, "cleanup ")))
+		return r.bot.SendMessage(ctx, chatID, nil, "Use /cleanup and tap a topic or All.")
 
 	case text == "start":
 		return r.bot.SendMessage(ctx, chatID, nil, "Use /new to start a new session.")

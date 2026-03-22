@@ -4,118 +4,169 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/canhta/vibegram/internal/state"
+	"github.com/canhta/vibegram/internal/telegram"
 )
 
-func (r *Runtime) cleanupTopics(ctx context.Context, chatID int64, raw string) error {
-	threadIDs, sessions, err := r.cleanupTargets(raw)
+type cleanupTarget struct {
+	ThreadID int
+	Label    string
+	Sessions []state.Session
+}
+
+func (r *Runtime) showCleanupPicker(ctx context.Context, chatID int64) error {
+	targets, err := r.cleanupTargets()
 	if err != nil {
 		return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
 	}
+	if len(targets) == 0 {
+		return r.bot.SendMessage(ctx, chatID, nil, "cleanup: no session topics")
+	}
 
+	rows := make([][]telegram.InlineKeyboardButton, 0, len(targets)+1)
+	for _, target := range targets {
+		rows = append(rows, []telegram.InlineKeyboardButton{{
+			Text:         target.Label,
+			CallbackData: fmt.Sprintf("cleanup:topic:%d", target.ThreadID),
+		}})
+	}
+	rows = append(rows, []telegram.InlineKeyboardButton{{
+		Text:         "All",
+		CallbackData: "cleanup:all",
+	}})
+
+	_, err = r.bot.SendMessageCard(ctx, chatID, nil, "Select session topics to delete.", telegram.InlineKeyboardMarkup{
+		InlineKeyboard: rows,
+	})
+	return err
+}
+
+func (r *Runtime) handleCleanupCallback(ctx context.Context, chatID int64, data string) error {
+	switch {
+	case data == "cleanup:all":
+		targets, err := r.cleanupTargets()
+		if err != nil {
+			return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
+		}
+		return r.cleanupTargetsBySelection(ctx, chatID, targets)
+
+	case strings.HasPrefix(data, "cleanup:topic:"):
+		threadID, err := strconv.Atoi(strings.TrimPrefix(data, "cleanup:topic:"))
+		if err != nil {
+			return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: invalid topic id")
+		}
+		target, ok, err := r.cleanupTargetByThread(threadID)
+		if err != nil {
+			return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
+		}
+		if !ok {
+			return r.bot.SendMessage(ctx, chatID, nil, "cleanup: topic already gone")
+		}
+		return r.cleanupTargetsBySelection(ctx, chatID, []cleanupTarget{target})
+
+	default:
+		return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: unknown action")
+	}
+}
+
+func (r *Runtime) cleanupTargetsBySelection(ctx context.Context, chatID int64, targets []cleanupTarget) error {
 	deleted := 0
-	for _, threadID := range threadIDs {
-		if err := r.bot.DeleteForumTopic(ctx, chatID, threadID); err != nil {
+	for _, target := range targets {
+		if err := r.bot.DeleteForumTopic(ctx, chatID, target.ThreadID); err != nil {
 			if !isTopicGoneError(err) {
 				return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
 			}
+		} else {
+			deleted++
 		}
 
 		r.mu.Lock()
-		delete(r.sessionsByThread, threadID)
+		delete(r.sessionsByThread, target.ThreadID)
 		r.mu.Unlock()
-		deleted++
-	}
 
-	for _, session := range sessions {
-		if session.SessionTopicID > 1 {
-			r.mu.Lock()
-			delete(r.sessionsByThread, int(session.SessionTopicID))
-			r.mu.Unlock()
+		for _, session := range target.Sessions {
+			if session.SessionTopicID > 1 {
+				r.mu.Lock()
+				delete(r.sessionsByThread, int(session.SessionTopicID))
+				r.mu.Unlock()
+			}
 		}
-	}
 
-	for _, session := range sessions {
-		if session.ActiveRunID != "" {
-			if err := r.store.DeleteRun(session.ActiveRunID); err != nil && !isNotFound(err) {
+		for _, session := range target.Sessions {
+			if session.ActiveRunID != "" {
+				if err := r.store.DeleteRun(session.ActiveRunID); err != nil && !isNotFound(err) {
+					return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
+				}
+			}
+			if err := r.store.DeleteSession(session.ID); err != nil && !isNotFound(err) {
 				return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
 			}
 		}
-		if err := r.store.DeleteSession(session.ID); err != nil && !isNotFound(err) {
-			return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
-		}
 	}
 
-	return r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("cleanup: deleted %d topic(s)", deleted))
+	return r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("cleanup: deleted %d topic(s)", len(targets)))
 }
 
-func parseThreadIDs(raw string) ([]int, error) {
-	parts := strings.Split(raw, ",")
-	threadIDs := make([]int, 0, len(parts))
-	for _, part := range parts {
-		value := strings.TrimSpace(part)
-		if value == "" {
-			continue
-		}
-
-		threadID, err := strconv.Atoi(value)
-		if err != nil {
-			return nil, fmt.Errorf("invalid topic id %q", value)
-		}
-		threadIDs = append(threadIDs, threadID)
+func (r *Runtime) cleanupTargetByThread(threadID int) (cleanupTarget, bool, error) {
+	targets, err := r.cleanupTargets()
+	if err != nil {
+		return cleanupTarget{}, false, err
 	}
-
-	if len(threadIDs) == 0 {
-		return nil, fmt.Errorf("at least one topic id is required")
+	for _, target := range targets {
+		if target.ThreadID == threadID {
+			return target, true, nil
+		}
 	}
-	return threadIDs, nil
+	return cleanupTarget{}, false, nil
 }
 
-func (r *Runtime) cleanupTargets(raw string) ([]int, []state.Session, error) {
+func (r *Runtime) cleanupTargets() ([]cleanupTarget, error) {
 	sessions, err := r.store.ListSessions()
 	if err != nil {
-		return nil, nil, fmt.Errorf("list sessions: %w", err)
+		return nil, fmt.Errorf("list sessions: %w", err)
 	}
-
-	raw = strings.TrimSpace(raw)
-	if raw == "all" {
-		seen := make(map[int]struct{}, len(sessions))
-		threadIDs := make([]int, 0, len(sessions))
-		cleanupSessions := make([]state.Session, 0, len(sessions))
-		for _, session := range sessions {
-			if session.SessionTopicID <= 1 {
-				continue
-			}
-
-			threadID := int(session.SessionTopicID)
-			if _, ok := seen[threadID]; !ok {
-				seen[threadID] = struct{}{}
-				threadIDs = append(threadIDs, threadID)
-			}
-			cleanupSessions = append(cleanupSessions, session)
-		}
-		return threadIDs, cleanupSessions, nil
-	}
-
-	threadIDs, err := parseThreadIDs(raw)
-	if err != nil {
-		return nil, nil, err
-	}
-	threadIDs = dedupeThreadIDs(threadIDs)
 
 	byThread := make(map[int][]state.Session, len(sessions))
 	for _, session := range sessions {
-		byThread[int(session.SessionTopicID)] = append(byThread[int(session.SessionTopicID)], session)
+		if session.SessionTopicID <= 1 {
+			continue
+		}
+		threadID := int(session.SessionTopicID)
+		byThread[threadID] = append(byThread[threadID], session)
 	}
 
-	cleanupSessions := make([]state.Session, 0, len(threadIDs))
-	for _, threadID := range threadIDs {
-		cleanupSessions = append(cleanupSessions, byThread[threadID]...)
+	targets := make([]cleanupTarget, 0, len(byThread))
+	for threadID, sessions := range byThread {
+		targets = append(targets, cleanupTarget{
+			ThreadID: threadID,
+			Label:    cleanupLabel(threadID, sessions),
+			Sessions: sessions,
+		})
 	}
-	return threadIDs, cleanupSessions, nil
+
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].Label == targets[j].Label {
+			return targets[i].ThreadID < targets[j].ThreadID
+		}
+		return targets[i].Label < targets[j].Label
+	})
+
+	return targets, nil
+}
+
+func cleanupLabel(threadID int, sessions []state.Session) string {
+	for _, session := range sessions {
+		base := strings.TrimSpace(filepath.Base(session.WorkRoot))
+		if base != "" && base != "." && base != "/" {
+			return base
+		}
+	}
+	return fmt.Sprintf("Topic %d", threadID)
 }
 
 func isNotFound(err error) bool {
@@ -124,17 +175,4 @@ func isNotFound(err error) bool {
 
 func isTopicGoneError(err error) bool {
 	return strings.Contains(err.Error(), "TOPIC_ID_INVALID")
-}
-
-func dedupeThreadIDs(threadIDs []int) []int {
-	seen := make(map[int]struct{}, len(threadIDs))
-	deduped := make([]int, 0, len(threadIDs))
-	for _, threadID := range threadIDs {
-		if _, ok := seen[threadID]; ok {
-			continue
-		}
-		seen[threadID] = struct{}{}
-		deduped = append(deduped, threadID)
-	}
-	return deduped
 }

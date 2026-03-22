@@ -185,6 +185,16 @@ func (f *fakeBotClient) deletedTopicsSnapshot() []int {
 	return append([]int(nil), f.deletedTopics...)
 }
 
+func inlineButtonData(markup telegram.InlineKeyboardMarkup) []string {
+	data := make([]string, 0, len(markup.InlineKeyboard)*2)
+	for _, row := range markup.InlineKeyboard {
+		for _, button := range row {
+			data = append(data, button.CallbackData)
+		}
+	}
+	return data
+}
+
 type fakeCodexSessionRunner struct {
 	startPrompt       string
 	startWorkDir      string
@@ -705,15 +715,40 @@ func TestNewRuntimeRestoresSessionTopicMappingsFromStore(t *testing.T) {
 	}
 }
 
-func TestRuntimeHandleGeneralCleanupDeletesRequestedTopics(t *testing.T) {
+func TestRuntimeHandleGeneralCleanupShowsPicker(t *testing.T) {
 	store := state.NewStore(t.TempDir())
 	if err := store.Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 
-	bot := &fakeBotClient{}
-	codex := &fakeCodexSessionRunner{}
+	for _, session := range []state.Session{
+		{
+			ID:             "ses_12",
+			ActiveRunID:    "run_12",
+			Provider:       "codex",
+			GeneralTopicID: 1,
+			SessionTopicID: 12,
+			WorkRoot:       "/tmp/project-a",
+			Status:         state.SessionStatusRunning,
+			Phase:          state.SessionPhasePlanning,
+		},
+		{
+			ID:             "ses_14",
+			ActiveRunID:    "run_14",
+			Provider:       "claude",
+			GeneralTopicID: 1,
+			SessionTopicID: 14,
+			WorkRoot:       "/tmp/project-b",
+			Status:         state.SessionStatusRunning,
+			Phase:          state.SessionPhasePlanning,
+		},
+	} {
+		if err := store.SaveSession(session); err != nil {
+			t.Fatalf("SaveSession() error = %v", err)
+		}
+	}
 
+	bot := &fakeBotClient{}
 	rt := NewRuntime(
 		config.Config{
 			Telegram: config.TelegramConfig{
@@ -723,7 +758,7 @@ func TestRuntimeHandleGeneralCleanupDeletesRequestedTopics(t *testing.T) {
 		},
 		store,
 		bot,
-		codex,
+		&fakeCodexSessionRunner{},
 		nil,
 		nil,
 		nil,
@@ -735,22 +770,82 @@ func TestRuntimeHandleGeneralCleanupDeletesRequestedTopics(t *testing.T) {
 			UserID:   1001,
 			ChatID:   -1001234567890,
 			ThreadID: 1,
-			Text:     "/cleanup 12,14",
+			Text:     "/cleanup",
 		},
 	})
 	if err != nil {
 		t.Fatalf("HandleUpdate() error = %v", err)
 	}
 
-	if len(bot.deletedTopics) != 2 || bot.deletedTopics[0] != 12 || bot.deletedTopics[1] != 14 {
-		t.Fatalf("deletedTopics = %v, want [12 14]", bot.deletedTopics)
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent = %d, want 1 cleanup picker", len(bot.sent))
 	}
-	if len(bot.sent) != 1 || !strings.Contains(bot.sent[0].text, "cleanup: deleted 2 topic") {
-		t.Fatalf("cleanup reply = %+v", bot.sent)
+	if bot.sent[0].markup == nil {
+		t.Fatal("cleanup picker markup = nil")
+	}
+	if !strings.Contains(bot.sent[0].text, "Select session topics to delete") {
+		t.Fatalf("cleanup picker text = %q", bot.sent[0].text)
+	}
+	labels := inlineButtonLabels(*bot.sent[0].markup)
+	if !containsLabel(labels, "project-a") {
+		t.Fatalf("cleanup labels = %v, want project-a", labels)
+	}
+	if !containsLabel(labels, "project-b") {
+		t.Fatalf("cleanup labels = %v, want project-b", labels)
+	}
+	if !containsLabel(labels, "All") {
+		t.Fatalf("cleanup labels = %v, want All", labels)
+	}
+	data := inlineButtonData(*bot.sent[0].markup)
+	if !containsLabel(data, "cleanup:topic:12") {
+		t.Fatalf("cleanup callback data = %v, want cleanup:topic:12", data)
+	}
+	if !containsLabel(data, "cleanup:all") {
+		t.Fatalf("cleanup callback data = %v, want cleanup:all", data)
 	}
 }
 
-func TestRuntimeHandleGeneralCleanupAllDeletesPersistedSessionTopics(t *testing.T) {
+func TestRuntimeHandleGeneralCleanupRepliesWhenNoTopicsExist(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 31,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/cleanup",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 1 || bot.sent[0].markup != nil || !strings.Contains(bot.sent[0].text, "cleanup: no session topics") {
+		t.Fatalf("cleanup empty reply = %+v", bot.sent)
+	}
+}
+
+func TestRuntimeHandleCleanupCallbackDeletesSelectedTopic(t *testing.T) {
 	store := state.NewStore(t.TempDir())
 	if err := store.Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -806,22 +901,30 @@ func TestRuntimeHandleGeneralCleanupAllDeletesPersistedSessionTopics(t *testing.
 	)
 
 	err := rt.HandleUpdate(context.Background(), telegram.Update{
-		UpdateID: 31,
-		Message: telegram.UpdateMessage{
-			UserID:   1001,
-			ChatID:   -1001234567890,
-			ThreadID: 1,
-			Text:     "/cleanup all",
+		UpdateID: 32,
+		CallbackQuery: &telegram.CallbackQuery{
+			ID:         "cb-cleanup-one",
+			FromUserID: 1001,
+			Data:       "cleanup:topic:12",
+			Message: telegram.UpdateMessage{
+				MessageID: 9,
+				UserID:    1001,
+				ChatID:    -1001234567890,
+				ThreadID:  1,
+			},
 		},
 	})
 	if err != nil {
 		t.Fatalf("HandleUpdate() error = %v", err)
 	}
 
-	if len(bot.deletedTopics) != 2 || bot.deletedTopics[0] != 12 || bot.deletedTopics[1] != 14 {
-		t.Fatalf("deletedTopics = %v, want [12 14]", bot.deletedTopics)
+	if got := bot.answeredCallbacksSnapshot(); len(got) != 1 || got[0].id != "cb-cleanup-one" {
+		t.Fatalf("answered callbacks = %+v, want cleanup callback ack", got)
 	}
-	if len(bot.sent) != 1 || !strings.Contains(bot.sent[0].text, "cleanup: deleted 2 topic") {
+	if len(bot.deletedTopics) != 1 || bot.deletedTopics[0] != 12 {
+		t.Fatalf("deletedTopics = %v, want [12]", bot.deletedTopics)
+	}
+	if len(bot.sent) != 1 || !strings.Contains(bot.sent[0].text, "cleanup: deleted 1 topic") {
 		t.Fatalf("cleanup reply = %+v", bot.sent)
 	}
 	if _, err := store.LoadSession("ses_12"); !strings.Contains(fmt.Sprint(err), "state record not found") {
@@ -830,9 +933,12 @@ func TestRuntimeHandleGeneralCleanupAllDeletesPersistedSessionTopics(t *testing.
 	if _, err := store.LoadRun("run_12"); !strings.Contains(fmt.Sprint(err), "state record not found") {
 		t.Fatalf("LoadRun(run_12) err = %v, want not found after cleanup", err)
 	}
+	if _, err := store.LoadSession("ses_14"); err != nil {
+		t.Fatalf("LoadSession(ses_14) err = %v, want remaining session", err)
+	}
 }
 
-func TestRuntimeHandleGeneralCleanupAllIgnoresInvalidTopicIDsAndRemovesState(t *testing.T) {
+func TestRuntimeHandleCleanupCallbackAllDeletesPersistedSessionTopics(t *testing.T) {
 	store := state.NewStore(t.TempDir())
 	if err := store.Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -892,17 +998,25 @@ func TestRuntimeHandleGeneralCleanupAllIgnoresInvalidTopicIDsAndRemovesState(t *
 
 	err := rt.HandleUpdate(context.Background(), telegram.Update{
 		UpdateID: 34,
-		Message: telegram.UpdateMessage{
-			UserID:   1001,
-			ChatID:   -1001234567890,
-			ThreadID: 1,
-			Text:     "/cleanup all",
+		CallbackQuery: &telegram.CallbackQuery{
+			ID:         "cb-cleanup-all",
+			FromUserID: 1001,
+			Data:       "cleanup:all",
+			Message: telegram.UpdateMessage{
+				MessageID: 9,
+				UserID:    1001,
+				ChatID:    -1001234567890,
+				ThreadID:  1,
+			},
 		},
 	})
 	if err != nil {
 		t.Fatalf("HandleUpdate() error = %v", err)
 	}
 
+	if got := bot.answeredCallbacksSnapshot(); len(got) != 1 || got[0].id != "cb-cleanup-all" {
+		t.Fatalf("answered callbacks = %+v, want cleanup callback ack", got)
+	}
 	if len(bot.deletedTopics) != 1 || bot.deletedTopics[0] != 14 {
 		t.Fatalf("deletedTopics = %v, want [14]", bot.deletedTopics)
 	}
@@ -917,7 +1031,7 @@ func TestRuntimeHandleGeneralCleanupAllIgnoresInvalidTopicIDsAndRemovesState(t *
 	}
 }
 
-func TestRuntimeHandleGeneralCleanupAllDedupesTopicIDs(t *testing.T) {
+func TestRuntimeHandleCleanupCallbackAllDedupesTopicIDs(t *testing.T) {
 	store := state.NewStore(t.TempDir())
 	if err := store.Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -973,11 +1087,16 @@ func TestRuntimeHandleGeneralCleanupAllDedupesTopicIDs(t *testing.T) {
 
 	err := rt.HandleUpdate(context.Background(), telegram.Update{
 		UpdateID: 35,
-		Message: telegram.UpdateMessage{
-			UserID:   1001,
-			ChatID:   -1001234567890,
-			ThreadID: 1,
-			Text:     "/cleanup all",
+		CallbackQuery: &telegram.CallbackQuery{
+			ID:         "cb-cleanup-all",
+			FromUserID: 1001,
+			Data:       "cleanup:all",
+			Message: telegram.UpdateMessage{
+				MessageID: 9,
+				UserID:    1001,
+				ChatID:    -1001234567890,
+				ThreadID:  1,
+			},
 		},
 	})
 	if err != nil {

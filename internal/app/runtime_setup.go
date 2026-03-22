@@ -60,6 +60,13 @@ func (r *Runtime) handleCallback(ctx context.Context, callback telegram.Callback
 		return r.bot.AnswerCallback(ctx, callback.ID, "")
 	}
 
+	if strings.HasPrefix(callback.Data, "cleanup:") {
+		if err := r.bot.AnswerCallback(ctx, callback.ID, ""); err != nil {
+			return err
+		}
+		return r.handleCleanupCallback(ctx, callback.Message.ChatID, callback.Data)
+	}
+
 	draft, ok := r.draftForUser(callback.FromUserID)
 	if !ok {
 		return r.bot.AnswerCallback(ctx, callback.ID, "No draft in progress")
