@@ -191,7 +191,8 @@ func TestRuntimeGeneralWizardCanLaunchClaude(t *testing.T) {
 		t.Fatalf("claude.startWorkDir = %q, want %q", claude.startWorkDir, projectX)
 	}
 	waitForRuntime(t, func() bool {
-		return len(bot.sent) >= 6 && bot.sent[len(bot.sent)-1].text == "claude final message"
+		sent := bot.sentSnapshot()
+		return len(sent) >= 6 && sent[len(sent)-1].text == "claude final message"
 	}, "claude final message")
 }
 
@@ -269,21 +270,22 @@ func TestRuntimeGeneralWizardLaunchAutoRepliesToSafeQuestion(t *testing.T) {
 		t.Fatalf("EventType = %q, want %q", engine.lastEvent.EventType, events.EventTypeQuestion)
 	}
 	waitForRuntime(t, func() bool { return codex.resumePrompt == "Use Go's standard library testing package." }, "support-role follow-up resume")
-	waitForRuntime(t, func() bool { return len(bot.sent) >= 8 }, "support-role message fanout")
+	waitForRuntime(t, func() bool { return len(bot.sentSnapshot()) >= 8 }, "support-role message fanout")
 	if codex.resumeWorkDir != projectX {
 		t.Fatalf("resumeWorkDir = %q, want %q", codex.resumeWorkDir, projectX)
 	}
-	if bot.sent[len(bot.sent)-4].text != "Tool: shell — go test ./..." {
-		t.Fatalf("tool message = %q", bot.sent[len(bot.sent)-4].text)
+	sent := bot.sentSnapshot()
+	if sent[len(sent)-4].text != "Tool: shell — go test ./..." {
+		t.Fatalf("tool message = %q", sent[len(sent)-4].text)
 	}
-	if bot.sent[len(bot.sent)-3].text != "Question: Which test framework should I use?" {
-		t.Fatalf("question message = %q", bot.sent[len(bot.sent)-3].text)
+	if sent[len(sent)-3].text != "Question: Which test framework should I use?" {
+		t.Fatalf("question message = %q", sent[len(sent)-3].text)
 	}
-	if bot.sent[len(bot.sent)-2].text != "Agent reply: Use Go's standard library testing package." {
-		t.Fatalf("agent reply note = %q", bot.sent[len(bot.sent)-2].text)
+	if sent[len(sent)-2].text != "Agent reply: Use Go's standard library testing package." {
+		t.Fatalf("agent reply note = %q", sent[len(sent)-2].text)
 	}
-	if bot.sent[len(bot.sent)-1].text != "I'll use the Go standard library testing package." {
-		t.Fatalf("follow-up message = %q", bot.sent[len(bot.sent)-1].text)
+	if sent[len(sent)-1].text != "I'll use the Go standard library testing package." {
+		t.Fatalf("follow-up message = %q", sent[len(sent)-1].text)
 	}
 }
 
@@ -346,14 +348,15 @@ func TestRuntimeGeneralWizardLaunchRendersFilteredCodexEvents(t *testing.T) {
 	runGeneralWizardToTaskEntryPrompt(t, rt, bot, 1001)
 	sendTaskFromGeneral(t, rt, 1001, "choose test framework")
 
-	waitForRuntime(t, func() bool { return len(bot.sent) >= 8 }, "filtered codex launch messages")
-	if bot.sent[len(bot.sent)-2].text != "Tool: shell — go test ./..." {
-		t.Fatalf("tool message = %q", bot.sent[len(bot.sent)-2].text)
+	waitForRuntime(t, func() bool { return len(bot.sentSnapshot()) >= 8 }, "filtered codex launch messages")
+	sent := bot.sentSnapshot()
+	if sent[len(sent)-2].text != "Tool: shell — go test ./..." {
+		t.Fatalf("tool message = %q", sent[len(sent)-2].text)
 	}
-	if bot.sent[len(bot.sent)-1].text != "Question: Which test framework should I use?" {
-		t.Fatalf("question message = %q", bot.sent[len(bot.sent)-1].text)
+	if sent[len(sent)-1].text != "Question: Which test framework should I use?" {
+		t.Fatalf("question message = %q", sent[len(sent)-1].text)
 	}
-	if hasSentText(bot.sent, "Question: Some of what we're working on might be easier to explain if I can show it to you in a web browser. Want to try it? (Requires opening a local URL)") {
+	if hasSentText(sent, "Question: Some of what we're working on might be easier to explain if I can show it to you in a web browser. Want to try it? (Requires opening a local URL)") {
 		t.Fatal("browser-offer noise should not be rendered")
 	}
 }
@@ -439,8 +442,9 @@ func TestRuntimeGeneralWizardLaunchStreamsFilteredCodexEventsBeforeProviderFinis
 	}
 
 	waitForRuntime(t, func() bool {
-		return hasSentText(bot.sent, "Tool: shell — go test ./...") &&
-			hasSentText(bot.sent, "Question: Which test framework should I use?")
+		sent := bot.sentSnapshot()
+		return hasSentText(sent, "Tool: shell — go test ./...") &&
+			hasSentText(sent, "Question: Which test framework should I use?")
 	}, "streamed filtered codex events before provider exit")
 
 	close(codex.startRelease)

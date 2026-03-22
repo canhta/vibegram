@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 )
 
 type fakeBotClient struct {
+	mu                sync.RWMutex
 	createdTopicNames []string
 	sent              []sentMessage
 	edited            []editedMessage
@@ -60,6 +62,8 @@ func (f *fakeBotClient) CreateForumTopic(ctx context.Context, chatID int64, name
 	if f.createTopicErr != nil {
 		return 0, f.createTopicErr
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.createdTopicNames = append(f.createdTopicNames, name)
 	if f.nextThreadID == 0 {
 		f.nextThreadID = 42
@@ -68,12 +72,16 @@ func (f *fakeBotClient) CreateForumTopic(ctx context.Context, chatID int64, name
 }
 
 func (f *fakeBotClient) SendMessage(ctx context.Context, chatID int64, threadID *int, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.nextMessageID++
 	f.sent = append(f.sent, sentMessage{messageID: f.nextMessageID, chatID: chatID, threadID: threadID, text: text})
 	return nil
 }
 
 func (f *fakeBotClient) SendMessageCard(ctx context.Context, chatID int64, threadID *int, text string, markup telegram.InlineKeyboardMarkup) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.nextMessageID++
 	card := markup
 	f.sent = append(f.sent, sentMessage{
@@ -87,6 +95,8 @@ func (f *fakeBotClient) SendMessageCard(ctx context.Context, chatID int64, threa
 }
 
 func (f *fakeBotClient) EditMessageCard(ctx context.Context, chatID int64, messageID int, text string, markup telegram.InlineKeyboardMarkup) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	card := markup
 	f.edited = append(f.edited, editedMessage{
 		chatID:    chatID,
@@ -98,11 +108,15 @@ func (f *fakeBotClient) EditMessageCard(ctx context.Context, chatID int64, messa
 }
 
 func (f *fakeBotClient) AnswerCallback(ctx context.Context, callbackID, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.answeredCallbacks = append(f.answeredCallbacks, answeredCallback{id: callbackID, text: text})
 	return nil
 }
 
 func (f *fakeBotClient) DeleteForumTopic(ctx context.Context, chatID int64, threadID int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.deleteTopicErrors != nil {
 		if err, ok := f.deleteTopicErrors[threadID]; ok {
 			return err
@@ -113,6 +127,8 @@ func (f *fakeBotClient) DeleteForumTopic(ctx context.Context, chatID int64, thre
 }
 
 func (f *fakeBotClient) SetCommands(ctx context.Context, chatID int64, commands []telegram.BotCommand) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	dup := append([]telegram.BotCommand(nil), commands...)
 	f.setCommandsCalls = append(f.setCommandsCalls, setCommandsCall{
 		chatID:   chatID,
@@ -122,6 +138,8 @@ func (f *fakeBotClient) SetCommands(ctx context.Context, chatID int64, commands 
 }
 
 func (f *fakeBotClient) GetUpdates(ctx context.Context, offset int64) ([]telegram.Update, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	var updates []telegram.Update
 	for _, update := range f.updates {
 		if update.UpdateID >= offset {
@@ -129,6 +147,42 @@ func (f *fakeBotClient) GetUpdates(ctx context.Context, offset int64) ([]telegra
 		}
 	}
 	return updates, nil
+}
+
+func (f *fakeBotClient) sentSnapshot() []sentMessage {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]sentMessage(nil), f.sent...)
+}
+
+func (f *fakeBotClient) createdTopicNamesSnapshot() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]string(nil), f.createdTopicNames...)
+}
+
+func (f *fakeBotClient) editedSnapshot() []editedMessage {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]editedMessage(nil), f.edited...)
+}
+
+func (f *fakeBotClient) answeredCallbacksSnapshot() []answeredCallback {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]answeredCallback(nil), f.answeredCallbacks...)
+}
+
+func (f *fakeBotClient) setCommandsSnapshot() []setCommandsCall {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]setCommandsCall(nil), f.setCommandsCalls...)
+}
+
+func (f *fakeBotClient) deletedTopicsSnapshot() []int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]int(nil), f.deletedTopics...)
 }
 
 type fakeCodexSessionRunner struct {
