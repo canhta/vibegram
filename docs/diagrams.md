@@ -72,6 +72,7 @@ Why this matters:
 flowchart TD
     HUMAN["Human"]
     GENERAL["General topic"]
+    DRAFT["/new draft<br/>agent / folder / task"]
     SESSION["Session topic"]
     BOARD["attention cards<br/>waiting / blocked / done / approval"]
 
@@ -79,7 +80,7 @@ flowchart TD
     HUMAN --> SESSION
 
     GENERAL --> BOARD
-    GENERAL -->|"create session"| SESSION
+    GENERAL --> DRAFT -->|"launch creates topic"| SESSION
     GENERAL -->|"blocked / failed / done / critical"| HUMAN
     SESSION -->|"important events"| HUMAN
     SESSION -->|"auto-reply notes"| HUMAN

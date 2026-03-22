@@ -38,6 +38,7 @@ Additional platform facts that matter:
 Purpose:
 
 - create new sessions
+- host the slash-only `/new` draft wizard before a session topic exists
 - show active session overview
 - maintain the current attention queue
 - alert on blocked, failed, done, and critical events
@@ -51,6 +52,7 @@ Authority model:
 
 - admin or operator humans may approve elevated actions
 - observers may read and discuss, but should not implicitly authorize runtime changes
+- state-changing control actions stay slash-only in General
 
 ### Session topic
 
@@ -73,7 +75,11 @@ Authority model:
 ## Topic lifecycle
 
 ```text
-General topic -> create session
+General topic -> /new draft
+  -> choose agent
+  -> choose folder
+  -> type task
+  -> validate or launch
   -> daemon allocates app session_id
   -> daemon creates session topic
   -> daemon launches run
@@ -93,6 +99,7 @@ The General topic should be treated specially:
 
 ### General topic messages
 
+- `/new` draft steps and confirmations
 - new session created
 - session blocked
 - session failed

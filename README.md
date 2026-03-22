@@ -36,8 +36,8 @@ What is already here:
 
 What is not here yet:
 
-- Telegram Bot API long-polling and real outbound delivery wiring
-- General topic `start <session>` and `stop <session>` commands
+- Claude session launch wiring in the live runtime
+- richer General-topic draft UX beyond the current `/new` wizard
 - explicit approval packets and Telegram-side secret redaction
 - Markdown memory, retrieval, and teaching capture
 - eval suites, real-provider smoke runs, and end-to-end integration coverage
@@ -71,6 +71,7 @@ The delivery plan is staged:
 The main agent should keep moving without forcing the human to babysit every clarification. Telegram should stay calm. The human should see the right thing at the right time:
 
 - General topic: control room, triage, blocked/done/critical alerts
+- General topic: `/new`, `/status`, `/cleanup`, plus light support chat
 - Session topic: important session events, auto-reply notes, escalations, and outcomes
 
 ## Core principles
@@ -117,13 +118,15 @@ The main agent should keep moving without forcing the human to babysit every cla
 If you want to contribute, start with [CONTRIBUTING.md](./CONTRIBUTING.md).
 For architecture-changing work, update the affected docs, decisions, and diagrams together.
 
-## Bootstrap Run
+## Local Run
 
-The current bootstrap slice is intentionally small. It does three things:
+The current runnable slice now does real control-room work:
 
 - loads environment config
-- validates the basic daemon bootstrap settings
-- creates the configured state directory and waits until shutdown
+- creates and loads local state
+- polls Telegram updates
+- handles `General` commands like `/new`, `/status`, and `/cleanup`
+- launches Codex and Claude sessions after the General-topic draft flow
 
 Local run command:
 

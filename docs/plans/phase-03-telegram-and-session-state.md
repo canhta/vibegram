@@ -24,7 +24,7 @@ Wire the daemon to Telegram both ways: send filtered events to General and sessi
 - concise Telegram renderer
 - Telegram long-polling loop (inbound)
 - inbound message router: topic → session → agent PTY stdin
-- General topic command handler (`status` first, then `start` / `stop`)
+- General topic command handler (`/new`, `/status`, `/cleanup`)
 - Telegram user authorization (admin / operator / observer)
 - rolling session snapshot store
 - delivery ledger for idempotent visible sends
@@ -41,12 +41,13 @@ Wire the daemon to Telegram both ways: send filtered events to General and sessi
 
 ### Telegram inbound: 2-way handler
 
-- [ ] Implement long-polling loop for incoming Telegram updates
+- [x] Implement long-polling loop for incoming Telegram updates
 - [x] Map Telegram user IDs to roles: `admin`, `operator`, `observer`
 - [x] Route incoming session-topic messages to the matching live agent session
 - [x] Inject authorized human replies into the agent process via PTY stdin
 - [x] Handle General topic command: `status`
-- [ ] Implement General topic commands: `start <session>`, `stop <session>`
+- [x] Implement General topic command: `/new`
+- [x] Implement General topic command: `/cleanup`
 - [x] Reject or log messages from unauthorized users without action
 - [x] Write tests for inbound routing, authorization, and PTY injection
 

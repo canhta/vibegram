@@ -10,8 +10,8 @@ import (
 
 	"github.com/canhta/vibegram/internal/config"
 	"github.com/canhta/vibegram/internal/policy"
+	claudeprovider "github.com/canhta/vibegram/internal/providers/claude"
 	codexprovider "github.com/canhta/vibegram/internal/providers/codex"
-	opencodeprovider "github.com/canhta/vibegram/internal/providers/opencode"
 	"github.com/canhta/vibegram/internal/roles"
 	"github.com/canhta/vibegram/internal/runner"
 	"github.com/canhta/vibegram/internal/state"
@@ -19,13 +19,13 @@ import (
 )
 
 type App struct {
-	cfg      config.Config
-	store    *state.Store
-	bot      botClient
-	codex    sessionRunner
-	opencode sessionRunner
-	policy   policyEngine
-	support  supportResponder
+	cfg     config.Config
+	store   *state.Store
+	bot     botClient
+	codex   sessionRunner
+	claude  sessionRunner
+	policy  policyEngine
+	support supportResponder
 }
 
 func New(cfg config.Config) (*App, error) {
@@ -45,13 +45,13 @@ func New(cfg config.Config) (*App, error) {
 	}
 
 	return &App{
-		cfg:      cfg,
-		store:    state.NewStore(cfg.Runtime.StateDir),
-		bot:      telegram.NewClient(cfg.Telegram.BotToken, ""),
-		codex:    codexprovider.NewSessionRunner(runner.New(), resolveCommandPath(cfg.Providers.CodexCommand, "codex")),
-		opencode: opencodeprovider.NewSessionRunner(runner.New(), resolveCommandPath(cfg.Providers.OpenCodeCommand, "opencode")),
-		policy:   engine,
-		support:  support,
+		cfg:     cfg,
+		store:   state.NewStore(cfg.Runtime.StateDir),
+		bot:     telegram.NewClient(cfg.Telegram.BotToken, ""),
+		codex:   codexprovider.NewSessionRunner(runner.New(), resolveCommandPath(cfg.Providers.CodexCommand, "codex")),
+		claude:  claudeprovider.NewSessionRunner(runner.New(), resolveCommandPath(cfg.Providers.ClaudeCommand, "claude")),
+		policy:  engine,
+		support: support,
 	}, nil
 }
 
@@ -64,7 +64,7 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 
-	runtime := NewRuntime(a.cfg, a.store, a.bot, a.codex, a.opencode, a.policy, a.support)
+	runtime := NewRuntime(a.cfg, a.store, a.bot, a.codex, a.claude, a.policy, a.support)
 	offset, err := a.store.LoadCursor("telegram_updates")
 	if err != nil {
 		if !errors.Is(err, state.ErrNotFound) {

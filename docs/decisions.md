@@ -38,6 +38,7 @@ This file records the major product and engineering decisions already made.
 2. Session topics are the working rooms
 3. General topic receives new session, blocked, done, failed, and critical escalation events
 4. Session topics receive important session events and automation notes
+5. Session creation starts with a slash-only `/new` draft in General; the session topic is created only when the draft is launched
 
 ## Context and memory
 

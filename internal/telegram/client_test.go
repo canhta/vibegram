@@ -197,6 +197,36 @@ func TestClientEditMessageCardUsesReplyMarkup(t *testing.T) {
 	}
 }
 
+func TestClientEditMessageCardZeroMarkupUsesEmptyInlineKeyboardArray(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+
+		replyMarkup, ok := body["reply_markup"].(map[string]any)
+		if !ok {
+			t.Fatalf("reply_markup = %T, want object", body["reply_markup"])
+		}
+		rows, ok := replyMarkup["inline_keyboard"].([]any)
+		if !ok {
+			t.Fatalf("inline_keyboard = %T, want array", replyMarkup["inline_keyboard"])
+		}
+		if len(rows) != 0 {
+			t.Fatalf("inline_keyboard len = %d, want 0", len(rows))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token", server.URL)
+	if err := client.EditMessageCard(context.Background(), -100123, 77, "Launching...", InlineKeyboardMarkup{}); err != nil {
+		t.Fatalf("EditMessageCard() error = %v", err)
+	}
+}
+
 func TestClientAnswerCallbackSendsCallbackIDAndText(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottest-token/answerCallbackQuery" {
