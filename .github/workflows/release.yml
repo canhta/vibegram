@@ -24,7 +24,7 @@ jobs:
           - runner: ubuntu-24.04
             goos: linux
             goarch: amd64
-          - runner: macos-13
+          - runner: macos-15-intel
             goos: darwin
             goarch: amd64
           - runner: macos-14
@@ -33,10 +33,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -70,7 +70,7 @@ jobs:
           scripts/build-release-archive "${VERSION}" "${{ matrix.goos }}" "${{ matrix.goarch }}" dist/vibegram "${GITHUB_WORKSPACE}" dist
 
       - name: Upload release archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*.tar.gz
@@ -97,7 +97,7 @@ jobs:
           echo "VERSION=${version}" >> "${GITHUB_ENV}"
 
       - name: Download release archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
