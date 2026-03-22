@@ -147,7 +147,7 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 		return fmt.Errorf("save resumed session: %w", err)
 	}
 
-	return r.deliverSessionResult(ctx, chatID, threadID, session, newRun, result, observer.deduper, false)
+	return r.deliverSessionResult(ctx, chatID, threadID, session, newRun, result, observer.deduper, true)
 }
 
 func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, goal string) {

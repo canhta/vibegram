@@ -14,6 +14,7 @@ import (
 	"github.com/canhta/vibegram/internal/events"
 	"github.com/canhta/vibegram/internal/policy"
 	codexprovider "github.com/canhta/vibegram/internal/providers/codex"
+	"github.com/canhta/vibegram/internal/roles"
 	"github.com/canhta/vibegram/internal/state"
 	"github.com/canhta/vibegram/internal/telegram"
 )
@@ -200,11 +201,13 @@ type fakeCodexSessionRunner struct {
 	startWorkDir      string
 	resumeSessionID   string
 	resumePrompt      string
+	resumePrompts     []string
 	resumeWorkDir     string
 	startStreamLines  []string
 	resumeStreamLines []string
 	startResult       codexprovider.SessionResult
 	resumeResult      codexprovider.SessionResult
+	resumeResults     []codexprovider.SessionResult
 	startRelease      chan struct{}
 	startCalled       chan struct{}
 }
@@ -260,6 +263,12 @@ func (f *fakeCodexSessionRunner) Resume(ctx context.Context, workDir, providerSe
 	f.resumeWorkDir = workDir
 	f.resumeSessionID = providerSessionID
 	f.resumePrompt = prompt
+	f.resumePrompts = append(f.resumePrompts, prompt)
+	if len(f.resumeResults) > 0 {
+		result := f.resumeResults[0]
+		f.resumeResults = f.resumeResults[1:]
+		return result, nil
+	}
 	return f.resumeResult, nil
 }
 
@@ -267,8 +276,14 @@ func (f *fakeCodexSessionRunner) ResumeStream(ctx context.Context, workDir, prov
 	f.resumeWorkDir = workDir
 	f.resumeSessionID = providerSessionID
 	f.resumePrompt = prompt
+	f.resumePrompts = append(f.resumePrompts, prompt)
 	for _, line := range f.resumeStreamLines {
 		onLine(line)
+	}
+	if len(f.resumeResults) > 0 {
+		result := f.resumeResults[0]
+		f.resumeResults = f.resumeResults[1:]
+		return result, nil
 	}
 	return f.resumeResult, nil
 }
@@ -638,6 +653,117 @@ func TestRuntimeHandleSessionTopicMessageRendersFilteredCodexEvents(t *testing.T
 	}
 	if bot.sent[1].text != "Question: Which test framework should I use?" {
 		t.Fatalf("sent text[1] = %q", bot.sent[1].text)
+	}
+}
+
+func TestRuntimeHandleSessionTopicMessageAllowsAutoReplyOnResumedCodexStop(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_1",
+		ActiveRunID:    "run_1",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+	}
+	run := state.Run{
+		ID:                "run_1",
+		SessionID:         "ses_1",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeResults: []codexprovider.SessionResult{
+			{
+				ProviderSessionID: "thread-123",
+				Message:           "Which test framework should I use?",
+				RawOutput: strings.Join([]string{
+					`{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Which test framework should I use?"}}`,
+				}, "\n"),
+			},
+			{
+				ProviderSessionID: "thread-123",
+				Message:           "I'll use the Go standard library testing package.",
+				RawOutput: strings.Join([]string{
+					`{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"I'll use the Go standard library testing package."}}`,
+				}, "\n"),
+			},
+		},
+	}
+	engine := &fakePolicyEngine{
+		decision: policy.PolicyDecision{
+			Action:  roles.ActionReply,
+			Message: "Use Go's standard library testing package.",
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		engine,
+		nil,
+	)
+	rt.sessionsByThread[42] = "ses_1"
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 5,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 42,
+			Text:     "continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if !engine.called {
+		t.Fatal("policy engine was not called on resumed question")
+	}
+	if len(codex.resumePrompts) != 2 {
+		t.Fatalf("resumePrompts = %v, want original prompt and CEO reply", codex.resumePrompts)
+	}
+	if codex.resumePrompts[0] != "continue" {
+		t.Fatalf("first resume prompt = %q, want %q", codex.resumePrompts[0], "continue")
+	}
+	if codex.resumePrompts[1] != "Use Go's standard library testing package." {
+		t.Fatalf("second resume prompt = %q, want CEO reply", codex.resumePrompts[1])
+	}
+	if len(bot.sent) != 3 {
+		t.Fatalf("sent messages = %d, want 3", len(bot.sent))
+	}
+	if bot.sent[0].text != "Question: Which test framework should I use?" {
+		t.Fatalf("sent text[0] = %q", bot.sent[0].text)
+	}
+	if bot.sent[1].text != "Agent reply: Use Go's standard library testing package." {
+		t.Fatalf("sent text[1] = %q", bot.sent[1].text)
+	}
+	if bot.sent[2].text != "I'll use the Go standard library testing package." {
+		t.Fatalf("sent text[2] = %q", bot.sent[2].text)
 	}
 }
 
