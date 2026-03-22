@@ -10,16 +10,14 @@ Read these first:
 
 1. [README.md](./README.md)
 2. [AGENTS.md](./AGENTS.md)
-3. [docs/README.md](./docs/README.md)
-4. [docs/decisions.md](./docs/decisions.md)
-5. [docs/implementation-plan.md](./docs/implementation-plan.md)
-6. [docs/plans/README.md](./docs/plans/README.md)
+3. [docs/decisions.md](./docs/decisions.md)
+4. [docs/architecture.md](./docs/architecture.md)
+5. [docs/runtime-ops.md](./docs/runtime-ops.md)
 
 ## What good contributions look like right now
 
 - clarify architecture
-- tighten the implementation plan
-- improve diagrams and schemas
+- reduce duplicated documentation
 - add research-backed constraints
 - reduce ambiguity for future implementation
 
@@ -35,9 +33,7 @@ Read these first:
 Update the affected files together:
 
 - [docs/decisions.md](./docs/decisions.md) for any locked-decision change
-- the relevant topic docs under [docs/](./docs)
-- [docs/diagrams.md](./docs/diagrams.md) if flows or boundaries changed
-- [docs/schemas/](./docs/schemas) if the data contract changed
+- the relevant surviving source-of-truth docs under [docs/](./docs)
 
 ## If you start implementation work
 
@@ -49,7 +45,7 @@ The current default implementation direction is:
 - direct process runner first
 - `systemd` as the default VPS story
 
-Keep early implementation small and aligned with [docs/implementation-plan.md](./docs/implementation-plan.md).
+Keep early implementation small and aligned with the locked product shape in [docs/decisions.md](./docs/decisions.md), [docs/architecture.md](./docs/architecture.md), and [docs/runtime-ops.md](./docs/runtime-ops.md).
 
 ## Pull requests
 
@@ -66,5 +62,3 @@ Please include:
 - why it changed
 - which docs or decisions were updated
 - any follow-up work or open questions
-
-If the work maps to a tracked phase plan, update the matching checklist in [docs/plans/](./docs/plans).

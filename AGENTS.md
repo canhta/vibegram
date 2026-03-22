@@ -11,20 +11,7 @@ Before changing architecture, product behavior, or implementation plans, read:
 1. [`README.md`](/Users/canh/Projects/OSS/vibegram/README.md)
 2. [`docs/decisions.md`](/Users/canh/Projects/OSS/vibegram/docs/decisions.md)
 3. [`docs/architecture.md`](/Users/canh/Projects/OSS/vibegram/docs/architecture.md)
-4. [`docs/telegram-model.md`](/Users/canh/Projects/OSS/vibegram/docs/telegram-model.md)
-5. [`docs/provider-model.md`](/Users/canh/Projects/OSS/vibegram/docs/provider-model.md)
-6. [`docs/session-context.md`](/Users/canh/Projects/OSS/vibegram/docs/session-context.md)
-7. [`docs/runtime-ops.md`](/Users/canh/Projects/OSS/vibegram/docs/runtime-ops.md)
-8. [`docs/implementation-plan.md`](/Users/canh/Projects/OSS/vibegram/docs/implementation-plan.md)
-9. [`docs/plans/README.md`](/Users/canh/Projects/OSS/vibegram/docs/plans/README.md)
-10. [`docs/diagrams.md`](/Users/canh/Projects/OSS/vibegram/docs/diagrams.md)
-
-Use the deeper research docs only when the task touches those areas:
-
-- Telegram platform details: [`docs/telegram-research.md`](/Users/canh/Projects/OSS/vibegram/docs/telegram-research.md)
-- Go implementation guidance: [`docs/go-guidance.md`](/Users/canh/Projects/OSS/vibegram/docs/go-guidance.md)
-- OpenAI role-layer guidance: [`docs/openai-guidance.md`](/Users/canh/Projects/OSS/vibegram/docs/openai-guidance.md)
-- Reference lessons from the old system: [`docs/ccgram-lessons.md`](/Users/canh/Projects/OSS/vibegram/docs/ccgram-lessons.md)
+4. [`docs/runtime-ops.md`](/Users/canh/Projects/OSS/vibegram/docs/runtime-ops.md)
 
 ## Product Invariants
 
@@ -56,9 +43,9 @@ Current status:
 
 This means:
 
-- prefer editing docs, schemas, and plans when the task is architectural or plan-level
+- prefer editing docs when the task is architectural or plan-level
 - do not invent build, test, or dev commands that do not exist yet
-- when you change implementation or plan state, keep the docs aligned in the same change
+- when you change implementation or product behavior, keep the docs aligned in the same change
 
 ## Implementation Defaults
 
@@ -93,14 +80,7 @@ Implementation stance:
 When changing the design:
 
 - update [`docs/decisions.md`](/Users/canh/Projects/OSS/vibegram/docs/decisions.md) if a locked decision changes
-- update the affected topic docs, not just one summary page
-- update [`docs/diagrams.md`](/Users/canh/Projects/OSS/vibegram/docs/diagrams.md) when flows or boundaries change
-- keep schemas in [`docs/schemas/`](/Users/canh/Projects/OSS/vibegram/docs/schemas) aligned with the written design
-
-When executing work from a tracked plan:
-
-- update the relevant checklist in [`docs/plans/`](/Users/canh/Projects/OSS/vibegram/docs/plans) in the same change
-- do not mark a checkbox complete unless the corresponding work and verification are actually done
+- update the affected surviving source-of-truth docs, not just `README.md`
 
 Do not quietly reintroduce rejected ideas:
 
@@ -139,7 +119,6 @@ Avoid:
 For doc-only changes:
 
 - check internal consistency across README, decisions, and the affected design docs
-- make sure diagrams and schemas still match the prose
 
 For future code changes:
 

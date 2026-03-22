@@ -1,184 +1,125 @@
 # vibegram
 
-Telegram-native control room for vibecoding agents.
+Run Codex and Claude Code from Telegram without drowning in terminal spam.
 
-`vibegram` is a local-first daemon that runs coding agents, filters their noisy output into human-readable Telegram updates, and lets support roles unblock the main agent automatically until a genuinely critical decision needs a human.
+`vibegram` turns a Telegram Forum into a quiet control room for coding agents:
 
-Status: design-led repo with a runnable Go daemon skeleton, completed Phase 1 work, most of Phase 2 work, and partial Phase 3 and Phase 4 implementation in tree.
+- one `General` topic to start work and see status
+- one topic per active coding session
+- filtered, human-readable updates instead of raw transcript noise
+- local-first daemon, good for your laptop or a small Ubuntu VPS
 
-## Why this exists
+## Why people want this
 
-Current coding-agent workflows leak too much raw terminal output into the human loop.
-`vibegram` is meant to make that supervision layer calmer and more useful:
+Most agent workflows leak too much implementation detail into the human loop.
+You ask for a task, then get buried in `rg`, `sed`, `cat`, and shell chatter.
 
-- one General topic for overview and critical alerts
-- one session topic per working agent session
-- quiet, filtered updates instead of transcript spam
-- safe support-role automation until a human decision is truly needed
+`vibegram` keeps the useful parts:
 
-## Current state
+- what started
+- what changed
+- what is blocked
+- what needs your answer
+- what finished
 
-Today this repo is still design-led and not a shipped daemon yet, but it is no longer docs-only.
+## How it works
 
-What is already here:
+```mermaid
+flowchart LR
+    U["You"]
 
-- locked product and architecture decisions
-- Telegram, Go, and OpenAI research notes
-- diagrams and schemas
-- a concrete implementation plan for the first Go-based version
-- runnable daemon entrypoint with config loading and boot tests
-- file-backed session, run, and snapshot state stores
-- direct PTY runner
-- Claude and Codex adapters with transcript fixtures and normalization tests
-- event normalization, dedupe, and provider priority handling
-- Telegram routing, rendering, authorization, inbound PTY injection, and delivery-ledger primitives
-- unified support-role executor, policy engine, and a `systemd` service unit
+    subgraph TG["Telegram Forum"]
+        G["General topic<br/>/new · /status · /cleanup"]
+        S["Session topic<br/>progress · questions · outcomes"]
+    end
 
-What is not here yet:
+    subgraph APP["vibegram daemon"]
+        R["General routing<br/>draft + launch"]
+        ST["App state<br/>session_id · run_id · offsets"]
+        F["Filter + normalize<br/>hide noise, keep signal"]
+        P["Policy + support layer"]
+    end
 
-- Claude session launch wiring in the live runtime
-- richer General-topic draft UX beyond the current `/new` wizard
-- explicit approval packets and Telegram-side secret redaction
-- Markdown memory, retrieval, and teaching capture
-- eval suites, real-provider smoke runs, and end-to-end integration coverage
-- real VPS verification for boot, restart, and journald behavior
+    subgraph AGENTS["Coding agents"]
+        C1["Codex"]
+        C2["Claude Code"]
+    end
 
-The delivery plan is staged:
+    U --> G
+    G --> R
+    R --> ST
+    ST --> C1
+    ST --> C2
+    C1 --> F
+    C2 --> F
+    F --> P
+    P --> S
+    S --> U
+```
 
-- executable milestone first
-- bounded automation second
-- harder quality and ops guarantees after the core loop is real
+## Core product shape
 
-## What vibegram is
+- one Telegram Forum
+- one `General` topic as the control room
+- one durable topic per session
+- one local daemon that owns state, routing, and provider runs
+- direct process runner first
+- `systemd` as the default VPS story
 
-- A single local daemon or VPS service
-- A Telegram Forum workflow with one General topic plus per-session topics
-- A direct process runner first, with optional `tmux` later if needed
-- A system that supports both Codex and Claude Code
-- A rule-driven event normalizer that turns raw agent output into clean updates
-- A bounded support layer that can unblock, summarize, escalate, or ask for human input when safe
+## Current status
 
-## What vibegram is not
+This repo is already runnable, but still in-progress.
 
-- Not a terminal mirror
-- Not a cloud control plane
-- Not a cross-provider handoff system in v1
-- Not a self-editing memory system
-- Not a Telegram Mini App product
+What works now:
 
-## Product stance
+- Telegram polling and routing
+- `General` commands like `/new`, `/status`, and `/cleanup`
+- Codex and Claude session launching
+- filtered session output
+- Ubuntu `systemd` install path
+- GitHub release builds for Linux and macOS
 
-The main agent should keep moving without forcing the human to babysit every clarification. Telegram should stay calm. The human should see the right thing at the right time:
+What is still being tightened:
 
-- General topic: control room, triage, blocked/done/critical alerts
-- General topic: `/new`, `/status`, `/cleanup`, plus light support chat
-- Session topic: important session events, auto-reply notes, escalations, and outcomes
+- quieter session rendering
+- richer memory and retrieval
+- stronger smoke coverage and evals
+- tighter approval and escalation paths
 
-## Core principles
+## Ubuntu install
 
-1. Direct runner first. `systemd` owns uptime; `tmux` is optional.
-2. Topic UX first. Telegram topics are views into state, not the state store.
-3. App-owned identity. A topic binds to an app session, not a child process.
-4. Markdown memory first. Rules and learned decisions live in files you can inspect and diff.
-5. GPT-5 family for inference. OpenAI Responses features are accelerators, not the source of truth.
-6. Safe automation. Support actions reply directly only when policy says it is safe.
+Download the latest Linux release from the [releases page](https://github.com/canhta/vibegram/releases).
 
-## Repo map
+Example for `v1.0.0`:
 
-- [`AGENTS.md`](./AGENTS.md): root instructions for coding agents working in this repo
-- [`docs/README.md`](./docs/README.md): reading order for the design set
-- [`docs/diagrams.md`](./docs/diagrams.md): visual system overview and key flows
-- [`docs/implementation-plan.md`](./docs/implementation-plan.md): proposed first build plan
-- [`docs/plans/README.md`](./docs/plans/README.md): tracked execution phases and checkbox progress
-- [`CONTRIBUTING.md`](./CONTRIBUTING.md): how to contribute without drifting the design
+```bash
+curl -L https://github.com/canhta/vibegram/releases/download/v1.0.0/vibegram_1.0.0_linux_amd64.tar.gz -o vibegram_1.0.0_linux_amd64.tar.gz
+tar -xzf vibegram_1.0.0_linux_amd64.tar.gz
+sudo install -m 0755 vibegram_1.0.0_linux_amd64/vibegram /usr/local/bin/vibegram
+sudo vibegram install
+```
 
-## Docs
+The installer will:
 
-- [Docs Index](./docs/README.md)
-- [Vision](./docs/vision.md)
-- [Decisions](./docs/decisions.md)
-- [Architecture](./docs/architecture.md)
-- [Telegram Model](./docs/telegram-model.md)
-- [Provider Model](./docs/provider-model.md)
-- [Event Model](./docs/event-model.md)
-- [Session Context](./docs/session-context.md)
-- [Automation Safety](./docs/automation-safety.md)
-- [Runtime and Ops](./docs/runtime-ops.md)
-- [Telegram Research](./docs/telegram-research.md)
-- [Go Guidance](./docs/go-guidance.md)
-- [OpenAI Guidance](./docs/openai-guidance.md)
-- [Lessons from ccgram](./docs/ccgram-lessons.md)
-- [Trust Boundaries](./docs/trust-boundaries.md)
-- [Diagrams](./docs/diagrams.md)
-- [Testing and Evals](./docs/testing-evals.md)
-- [Implementation Plan](./docs/implementation-plan.md)
+- detect the real operator account
+- detect `codex` and `claude` paths when possible
+- write `/etc/vibegram/env`
+- install and start the `systemd` service
 
-## Contributing
-
-If you want to contribute, start with [CONTRIBUTING.md](./CONTRIBUTING.md).
-For architecture-changing work, update the affected docs, decisions, and diagrams together.
-
-## Local Run
-
-The current runnable slice now does real control-room work:
-
-- loads environment config
-- creates and loads local state
-- polls Telegram updates
-- handles `General` commands like `/new`, `/status`, and `/cleanup`
-- launches Codex and Claude sessions as soon as a General-topic draft has provider, folder, and task
-
-Local run command:
+## Local run
 
 ```bash
 go run ./cmd/vibegram
 ```
 
-## Ubuntu Setup
+## Docs
 
-For a normal Ubuntu or VPS install, the intended flow is now:
+The repo now keeps only 3 source-of-truth docs:
 
-```bash
-sudo vibegram init
-sudo vibegram service install
-sudo vibegram service start
-sudo vibegram service status
-sudo vibegram service logs
-```
+- [Locked Decisions](./docs/decisions.md)
+- [Architecture](./docs/architecture.md)
+- [Runtime and Ops](./docs/runtime-ops.md)
 
-What those do:
+## Contributing
 
-- `vibegram init` asks for Telegram and provider settings, then writes `/etc/vibegram/env`
-- `vibegram service install` creates the systemd unit and reloads systemd
-- `vibegram service start` runs `systemctl enable --now vibegram`
-- `vibegram service status` shows the current unit status
-- `vibegram service logs` shows recent journald logs
-
-## Release Builds
-
-GitHub Releases are built from tags like `v1.0.0`.
-
-The checked-in release workflow produces:
-
-- `darwin/amd64`
-- `darwin/arm64`
-- `linux/amd64`
-
-Each release asset is a `.tar.gz` bundle with:
-
-- `vibegram`
-- `README.md`
-- `LICENSE`
-- `packaging/vibegram.service`
-
-Current bootstrap environment variables:
-
-- `VIBEGRAM_TELEGRAM_BOT_TOKEN`
-- `VIBEGRAM_TELEGRAM_FORUM_CHAT_ID`
-- `OPENAI_API_KEY` optional for now
-- `VIBEGRAM_OPENAI_MODEL` optional, defaults to `gpt-5`
-- `VIBEGRAM_PROVIDER_CLAUDE_CMD`
-- `VIBEGRAM_PROVIDER_CODEX_CMD`
-- `VIBEGRAM_WORK_ROOT` optional, defaults to the current working directory
-- `VIBEGRAM_STATE_DIR` optional, defaults to `<work_root>/state`
-- `VIBEGRAM_LOG_LEVEL` optional, defaults to `info`
+If you want to contribute, start with [AGENTS.md](./AGENTS.md) and [CONTRIBUTING.md](./CONTRIBUTING.md).

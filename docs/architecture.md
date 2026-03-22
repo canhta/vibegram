@@ -1,209 +1,154 @@
 # Architecture
 
+`vibegram` is a Telegram-native control room for coding agents.
+The product shape is intentionally small:
+
+- one Telegram Forum
+- one `General` topic as the control room
+- one durable topic per working session
+- one local daemon that owns state, routing, and provider runs
+
+## Product shape
+
+The human should not babysit raw terminal output.
+`vibegram` exists to keep Telegram quiet and useful:
+
+- `General` is where you create work, see status, and clean up
+- session topics are where an active Codex or Claude run lives
+- the daemon turns noisy provider activity into a small set of readable Telegram updates
+
+Non-goals for v1:
+
+- terminal-mirror UX
+- cloud control plane
+- cross-provider handoff
+- self-editing memory
+- Telegram Mini App dependency
+
 ## System overview
 
-`vibegram` is a single daemon that ingests provider signals, normalizes them into stable events, updates a rolling session snapshot, and routes readable output into Telegram topics.
+```mermaid
+flowchart TD
+    TG["Telegram Forum"] --> GEN["General topic"]
+    TG --> SES["Session topics"]
 
-## Top-level diagram
+    GEN --> APP["vibegram daemon"]
+    SES --> APP
 
-```text
-                    +-----------------------------------+
-                    | Telegram Forum                    |
-                    |-----------------------------------|
-                    | General topic                     |
-                    | - create session                  |
-                    | - blocked/done/critical alerts    |
-                    | - jump to session topic           |
-                    |                                   |
-                    | Session topics                    |
-                    | - important events                |
-                    | - auto-reply notes                |
-                    | - escalation notes                |
-                    +----------------+------------------+
-                                     ^
-                                     |
-                    +----------------+------------------+
-                    | vibegram daemon                  |
-                    |-----------------------------------|
-                    | Runner                            |
-                    | Provider adapters                 |
-                    | Event normalizer                  |
-                    | Rolling snapshot store            |
-                    | Delivery ledger                   |
-                    | Retrieval index                   |
-                    | Policy engine                     |
-                    | Trust boundary checks             |
-                    | support-profile executor          |
-                    +-----------+--------------+--------+
-                                |              |
-                    +-----------+              +-----------+
-                    |                                      |
-                    v                                      v
-             Claude Code                               Codex
-       hooks -> transcript -> PTY              transcript -> PTY
+    APP --> RUN["Runner"]
+    APP --> NORM["Event filter + normalizer"]
+    APP --> STATE["Session state"]
+    APP --> POLICY["Policy + support role"]
+
+    RUN --> CLAUDE["Claude Code"]
+    RUN --> CODEX["Codex"]
 ```
 
-For the maintained visual set used across the repo, see [Diagrams](./diagrams.md).
+## Telegram model
 
-## Major components
+### General topic
 
-### 1. Runner
+`General` is the control room.
+It is not just another thread.
 
-Responsibilities:
+What belongs there:
 
-- launch agent processes
+- `/new`
+- `/status`
+- `/cleanup`
+- light support chat
+- session creation
+- blocked, done, failed, and critical alerts
 
-- capture PTY output
-- track process lifecycle
-- optionally support `tmux` later as an adapter
+### Session topics
 
-Non-responsibilities:
+Each session topic maps to one app-owned session.
 
-- no Telegram formatting
-- no policy decisions
-- no memory mutation logic
+Identity model:
 
-### 2. Provider adapters
+```text
+topic_id -> session_id -> run_id -> provider metadata
+```
 
-Responsibilities:
+A session topic is durable even if the provider process changes underneath it.
 
-- understand provider-specific transcript formats
-- understand provider-specific lifecycle signals
-- emit provider-native raw observations into the normalizer
+## Session lifecycle
 
-Non-responsibilities:
+Current V1 flow:
 
-- no Telegram routing
-- no business-level event naming outside the normalized contract
+1. User starts a draft from `General` with `/new`
+2. User selects provider
+3. User selects folder
+4. User sends the task text
+5. The daemon creates the session topic
+6. The daemon launches the provider immediately
 
-### 3. Event normalizer
+The topic name should stay short and operator-friendly.
 
-Responsibilities:
+## Provider model
 
-- dedupe repeated provider signals
-- map raw provider observations to stable event types
-- generate compact event payloads
+Supported providers in v1:
 
-This is the heart of the product.
+- Codex
+- Claude Code
 
-### Trust boundary requirement
+Signal priority:
 
-The architecture must preserve a hard split between:
+- Claude: `hooks -> transcript -> PTY`
+- Codex: `transcript -> PTY`
+
+Adapters are provider-specific.
+Filtering and routing are provider-agnostic.
+
+## Event model
+
+The product does not expose raw transcripts as the main UX.
+
+The daemon reduces provider output into a small set of meaningful Telegram-visible events:
+
+- question
+- blocked
+- failed
+- final useful reply
+- selected command activity that matters to a human
+
+Read-only exploration noise should stay hidden by default.
+
+## State model
+
+The daemon owns app state locally.
+
+Minimum state:
+
+- session records
+- run records
+- rolling snapshots
+- delivery ledger
+- Telegram update offset/checkpoints
+
+This is restart-safe local state, not cloud state.
+
+## Trust boundary
+
+There are three distinct classes:
 
 - trusted policy
 - trusted system state
-- untrusted evidence
+- untrusted provider evidence
 
-and must evaluate source-to-sink risk before any autonomous reply or privilege escalation.
+The daemon must never let untrusted model output directly grant privilege, widen access, or mutate high-risk state without an explicit trusted policy path.
 
-For the full model, see [Trust Boundaries](./trust-boundaries.md).
+## Memory
 
-### 4. Snapshot store
+Long-term memory is app-owned Markdown plus a local retrieval index.
+OpenAI-compatible inference helps with bounded role execution, but is not the system of record.
 
-Responsibilities:
+## Design stance
 
-- keep current session state
-- store recent event window
-- track last blocker, last files summary, last tests summary, escalation state
+When in doubt, prefer:
 
-This is intentionally a rolling state store, not long-term semantic memory.
-
-### 5. Retrieval index
-
-Responsibilities:
-
-- index local Markdown rules and decisions
-- return relevant rules/examples quickly
-- keep Markdown as the source of truth
-
-### 6. Delivery ledger
-
-Responsibilities:
-
-- enforce idempotent Telegram delivery
-- track which normalized events have already produced visible messages
-- prevent duplicate alerts on restart or multi-source replay
-
-The product promise is low-noise supervision.
-Without a delivery ledger, replay-safe offsets alone are not enough.
-
-### 7. Policy engine
-
-Responsibilities:
-
-- decide whether to render, auto-reply, escalate, or ignore
-- choose the right internal support profile
-- enforce retry ceilings and escalation rules
-- enforce authorization and elevation rules
-
-### 8. Telegram renderer
-
-Responsibilities:
-
-- General topic message rendering
-- session topic message rendering
-- compact, human-readable output
-
-## Data flow
-
-```text
-provider signal
-   -> adapter
-   -> normalized event
-   -> dedupe
-   -> snapshot update
-   -> delivery ledger check
-   -> routing decision
-      -> General topic
-      -> session topic
-      -> role execution
-      -> no-op
-```
-
-## Storage model
-
-Recommended local storage layout:
-
-```text
-state/
-  sessions/
-    <session_id>.json
-  runs/
-    <run_id>.json
-  snapshots/
-    <session_id>.json
-  offsets/
-    claude-<run_id>.json
-    codex-<run_id>.json
-memory/
-  rules/
-    global.md
-    eng.md
-    ceo.md
-  decisions/
-    YYYY-MM/
-      <slug>.md
-  promotions/
-    <slug>.md
-index/
-  retrieval.db
-logs/
-  daemon.log
-artifacts/
-  evidence/
-    <event_id>.json
-```
-
-## Failure philosophy
-
-- visible failure is better than silent failure
-- dedupe aggressively
-- make visible delivery idempotent
-- retries are bounded
-- automation stops and escalates when uncertainty rises
-- the daemon owns orchestration, not recovery magic
-
-## Reference system note
-
-The current `ccgram` codebase is a useful reference for message shaping, provider asymmetry, and Telegram-safe fallback behavior.
-For the distilled lessons we want to preserve and the couplings we explicitly want to avoid, see [Lessons from ccgram](./ccgram-lessons.md).
+- fewer visible messages
+- durable topic identity
+- app-owned state over provider-owned state
+- systemd over terminal tricks
+- simple boring flows over clever UX layers

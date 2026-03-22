@@ -1,8 +1,8 @@
 # Runtime and Ops
 
-## Default deployment model
+## Deployment default
 
-`vibegram` should be easiest to run like any normal Linux service:
+The default production story is:
 
 ```text
 systemd
@@ -10,52 +10,42 @@ systemd
      -> direct PTY child processes
 ```
 
-## Why not tmux-first
+`tmux` is optional later, not part of the normal setup.
 
-`tmux` is a useful operator tool, but a poor default onboarding story.
-
-The user should not need to understand:
-
-- panes
-- sessions
-- reattach flow
-- server cleanup
-
-just to supervise agents from Telegram.
-
-## Optional tmux adapter
-
-`tmux` remains a future adapter for:
-
-- manual inspection
-- weird VPS PTY edge cases
-- users who prefer terminal-native operational workflows
-
-## systemd service goals
-
-- restart on failure
-- logs via journald
-- startup on boot
-- predictable environment loading
-
-## Suggested runtime directories
+## Runtime directories
 
 ```text
-/var/lib/vibegram/      persistent app state
-/var/log/vibegram/      optional file logs
-/etc/vibegram/          config and environment
+/etc/vibegram/          config and secrets
+/var/lib/vibegram/      state and runtime data
 ```
 
-The checked-in `systemd` unit now uses `StateDirectory=vibegram` and pins:
+The systemd unit should pin:
 
-- `VIBEGRAM_WORK_ROOT=/var/lib/vibegram`
-- `VIBEGRAM_STATE_DIR=/var/lib/vibegram/state`
+- `VIBEGRAM_WORK_ROOT`
+- `VIBEGRAM_STATE_DIR`
+- `HOME` for the chosen service account
+- `EnvironmentFile=/etc/vibegram/env`
 
-Secrets and provider commands should still come from `/etc/vibegram/env`.
+## Install flow
 
-## Bootstrap flow
+Production default:
 
-The default Ubuntu or VPS path should be:
+```bash
+sudo vibegram install
+```
+
+That command should:
+
+- detect the real operator account when possible
+- detect `codex` and `claude` paths
+- write `/etc/vibegram/env`
+- make that env file readable by the service account
+- install `/etc/systemd/system/vibegram.service`
+- reload systemd
+- enable and start the service
+- print final service status
+
+Advanced split flow still exists:
 
 ```bash
 sudo vibegram init
@@ -65,76 +55,60 @@ sudo vibegram service status
 sudo vibegram service logs
 ```
 
-Behavior:
-
-- `vibegram init` interactively writes `/etc/vibegram/env`
-- `vibegram service install` writes `/etc/systemd/system/vibegram.service` and runs `systemctl daemon-reload`
-- `vibegram service start` enables and starts the unit
-- `vibegram service status` shells out to `systemctl status vibegram --no-pager`
-- `vibegram service logs` shells out to `journalctl -u vibegram -n 200 --no-pager`
-
 ## Config surface
 
-Recommended config:
+Expected config:
 
 - Telegram bot token
 - Telegram forum chat ID
-- OpenAI API key
-- default GPT-5 family model
-- provider commands or paths
+- admin/operator Telegram IDs
+- `VIBEGRAM_PROVIDER_CODEX_CMD`
+- `VIBEGRAM_PROVIDER_CLAUDE_CMD`
+- optional OpenAI-compatible API settings
 - work root
 - state dir
 - log level
-- automation mode
-- sandbox profile defaults
-- allowlisted network destinations
-
-Secret-handling requirements:
-
-- bot token and API keys should come from environment or a local secret source, not Markdown memory
-- service files should reference environment files with restrictive permissions
-- secret values should never be mirrored into Telegram or persisted in audit artifacts unless explicitly redacted
-
-## Observability
-
-Minimum observability:
-
-- daemon log
-- per-session state file
-- per-run metadata file
-- counters for auto-reply, escalation, dedupe, and failure
-- audit trail for approval and elevation decisions
-- delivery-ledger visibility for duplicate suppression debugging
-
-## Crash recovery
-
-On daemon restart:
-
-1. load app sessions
-2. restore run metadata
-3. restore offsets/checkpoints
-4. resume monitoring
-5. avoid replaying stale events
-
-The system should prefer correctness over fancy self-healing.
 
 ## Service-account stance
 
-The daemon should run under a dedicated service account with only the workspace and state paths it needs.
-The default system story should not assume broad home-directory access.
+The production default should prefer the real operator account when that account already owns provider auth and binaries.
+That keeps first install simple.
 
-## Sandbox requirement
+If a user wants a tighter setup later, `service install --user ...` remains the escape hatch.
 
-The runtime must enforce least privilege by default:
+## Observability
 
-- workspace-scoped file access
-- network disabled by default
-- explicit elevation path for higher-risk operations
+Minimum operability:
 
-Exact implementation can evolve, but the product requirement is fixed.
+- `systemctl status vibegram`
+- `journalctl -u vibegram`
+- persisted session/run/snapshot state
+- replay-safe Telegram offset handling
 
-For the design rationale, see [Trust Boundaries](./trust-boundaries.md).
+## Recovery rules
 
-## Go implementation notes
+On restart the daemon should:
 
-The current recommendation for the daemon implementation is Go. For the detailed language guidance behind that recommendation, see [Go Guidance](./go-guidance.md).
+1. load sessions
+2. load runs and snapshots
+3. restore update offsets
+4. avoid replaying stale Telegram updates
+5. resume cleanly without duplicate visible delivery
+
+## Safety
+
+Defaults should stay boring:
+
+- workspace-scoped access
+- no privilege widening from provider text alone
+- no secret reflection into Telegram
+- no terminal-mirror UX as the primary product
+
+## Release and testing
+
+Release readiness should include:
+
+- `go test ./...`
+- provider smoke coverage
+- release artifacts for Linux and macOS
+- a working Ubuntu systemd path

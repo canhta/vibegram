@@ -7,6 +7,7 @@ Type=simple
 User=vibegram
 StateDirectory=vibegram
 WorkingDirectory=/var/lib/vibegram
+Environment=HOME=/var/lib/vibegram
 Environment=VIBEGRAM_WORK_ROOT=/var/lib/vibegram
 Environment=VIBEGRAM_STATE_DIR=/var/lib/vibegram/state
 EnvironmentFile=/etc/vibegram/env

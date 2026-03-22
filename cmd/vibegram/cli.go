@@ -16,6 +16,8 @@ type cliDeps struct {
 	lookPath       func(string) (string, error)
 	executablePath func() (string, error)
 	lookupUser     func(string) (*user.User, error)
+	currentUser    func() (*user.User, error)
+	getenv         func(string) string
 	runCommand     func(context.Context, string, ...string) error
 }
 
@@ -24,6 +26,8 @@ func defaultCLIDeps() cliDeps {
 		lookPath:       exec.LookPath,
 		executablePath: os.Executable,
 		lookupUser:     user.Lookup,
+		currentUser:    user.Current,
+		getenv:         os.Getenv,
 		runCommand:     runCommand,
 	}
 }
@@ -54,6 +58,8 @@ func runArgsWithDeps(ctx context.Context, args []string, stdin io.Reader, stdout
 			return err
 		}
 		return runInit(ctx, stdin, stdout, *envFile, deps)
+	case "install":
+		return runInstall(ctx, args[1:], stdin, stdout, stderr, deps)
 	case "service":
 		return runService(ctx, args[1:], stdout, stderr, deps)
 	default:

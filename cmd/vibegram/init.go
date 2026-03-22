@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -20,6 +21,10 @@ type initValues struct {
 	WorkRoot      string
 	StateDir      string
 	LogLevel      string
+	OpenAIAPIKey  string
+	OpenAIBaseURL string
+	OpenAIModel   string
+	SystemPath    string
 }
 
 func runInit(ctx context.Context, stdin io.Reader, stdout io.Writer, envFile string, deps cliDeps) error {
@@ -160,7 +165,40 @@ func renderEnvFile(values initValues) string {
 	lines = append(lines, "VIBEGRAM_WORK_ROOT="+values.WorkRoot)
 	lines = append(lines, "VIBEGRAM_STATE_DIR="+values.StateDir)
 	lines = append(lines, "VIBEGRAM_LOG_LEVEL="+values.LogLevel)
+
+	if values.OpenAIAPIKey != "" {
+		lines = append(lines, "OPENAI_API_KEY="+values.OpenAIAPIKey)
+	}
+	if values.OpenAIBaseURL != "" {
+		lines = append(lines, "VIBEGRAM_OPENAI_BASE_URL="+values.OpenAIBaseURL)
+	}
+	if values.OpenAIModel != "" {
+		lines = append(lines, "VIBEGRAM_OPENAI_MODEL="+values.OpenAIModel)
+	}
+	if values.SystemPath != "" {
+		lines = append(lines, "PATH="+values.SystemPath)
+	}
 	lines = append(lines, "")
 
 	return strings.Join(lines, "\n")
+}
+
+func buildServicePath(commands ...string) string {
+	seen := make(map[string]struct{})
+	dirs := make([]string, 0, len(commands)+1)
+	for _, command := range commands {
+		command = strings.TrimSpace(command)
+		if command == "" || !filepath.IsAbs(command) {
+			continue
+		}
+		dir := filepath.Dir(command)
+		if _, found := seen[dir]; found {
+			continue
+		}
+		seen[dir] = struct{}{}
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	dirs = append(dirs, "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
+	return strings.Join(dirs, ":")
 }
