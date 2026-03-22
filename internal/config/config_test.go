@@ -35,6 +35,9 @@ func TestLoadFromEnvParsesOpenAIBaseURLAndTelegramRoleIDs(t *testing.T) {
 }
 
 func TestLoadFromEnvLoadsDotEnvFileWhenProcessEnvIsMissing(t *testing.T) {
+	t.Setenv("VIBEGRAM_TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("VIBEGRAM_TELEGRAM_FORUM_CHAT_ID", "")
+
 	tmp := t.TempDir()
 	envPath := filepath.Join(tmp, ".env")
 	data := []byte("VIBEGRAM_TELEGRAM_BOT_TOKEN=from-dotenv\nVIBEGRAM_TELEGRAM_FORUM_CHAT_ID=-1001234567890\n")

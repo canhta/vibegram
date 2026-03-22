@@ -54,6 +54,13 @@ func TestRunBootstrapsAndStopsOnCancel(t *testing.T) {
 }
 
 func TestRunReturnsConfigErrors(t *testing.T) {
+	t.Setenv("VIBEGRAM_TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("VIBEGRAM_TELEGRAM_FORUM_CHAT_ID", "")
+	t.Setenv("VIBEGRAM_PROVIDER_CLAUDE_CMD", "")
+	t.Setenv("VIBEGRAM_PROVIDER_CODEX_CMD", "")
+	t.Setenv("VIBEGRAM_WORK_ROOT", "")
+	t.Setenv("VIBEGRAM_STATE_DIR", "")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

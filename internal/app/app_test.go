@@ -58,6 +58,7 @@ func TestLoadFromEnvRejectsInvalidForumChatID(t *testing.T) {
 }
 
 func TestLoadFromEnvRejectsMissingBotToken(t *testing.T) {
+	t.Setenv("VIBEGRAM_TELEGRAM_BOT_TOKEN", "")
 	t.Setenv("VIBEGRAM_TELEGRAM_FORUM_CHAT_ID", "-1001234567890")
 
 	_, err := config.LoadFromEnv()
