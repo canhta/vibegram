@@ -62,7 +62,9 @@ func (c *OpenAICaller) Call(ctx context.Context, prompt string) (string, error) 
 	}
 
 	var result struct {
+		OutputText string `json:"output_text"`
 		Output []struct {
+			Type    string `json:"type"`
 			Content []struct {
 				Text string `json:"text"`
 			} `json:"content"`
@@ -72,9 +74,17 @@ func (c *OpenAICaller) Call(ctx context.Context, prompt string) (string, error) 
 		return "", fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	if len(result.Output) == 0 || len(result.Output[0].Content) == 0 {
-		return "", fmt.Errorf("empty response from openai")
+	if strings.TrimSpace(result.OutputText) != "" {
+		return strings.TrimSpace(result.OutputText), nil
 	}
 
-	return result.Output[0].Content[0].Text, nil
+	for _, item := range result.Output {
+		for _, content := range item.Content {
+			if strings.TrimSpace(content.Text) != "" {
+				return strings.TrimSpace(content.Text), nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("empty response from openai")
 }
