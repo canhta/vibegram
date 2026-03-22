@@ -13,8 +13,9 @@ const (
 
 func Render(event events.NormalizedEvent) string {
 	summary := event.Summary
-	if len(summary) > maxSummaryLen {
-		summary = summary[:maxSummaryLen] + "..."
+	limit := summaryLimit(event.EventType)
+	if len(summary) > limit {
+		summary = summary[:limit] + "..."
 	}
 
 	var text string
@@ -47,4 +48,11 @@ func Render(event events.NormalizedEvent) string {
 		text = text[:maxMessageLen]
 	}
 	return text
+}
+
+func summaryLimit(eventType events.EventType) int {
+	if eventType == events.EventTypeQuestion {
+		return maxMessageLen
+	}
+	return maxSummaryLen
 }

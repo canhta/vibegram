@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -99,9 +100,29 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 		return fmt.Errorf("unknown provider %q", session.Provider)
 	}
 
-	result, err := runner.Resume(ctx, session.WorkRoot, run.ProviderSessionID, text)
+	streamRun := state.Run{
+		ID:                state.RunID(makeID("run")),
+		SessionID:         session.ID,
+		Provider:          session.Provider,
+		ProviderSessionID: run.ProviderSessionID,
+		Status:            state.RunStatusActive,
+		StartedAt:         time.Now().UTC(),
+		UpdatedAt:         time.Now().UTC(),
+	}
+	observer := newStreamObserver(r, ctx, chatID, threadID, session, streamRun)
+
+	var result codexprovider.SessionResult
+	streamer, canStream := runner.(streamingSessionRunner)
+	if canStream {
+		result, err = streamer.ResumeStream(ctx, session.WorkRoot, run.ProviderSessionID, text, observer.OnLine)
+	} else {
+		result, err = runner.Resume(ctx, session.WorkRoot, run.ProviderSessionID, text)
+	}
 	if err != nil {
 		return fmt.Errorf("resume provider session: %w", err)
+	}
+	if err := observer.Err(); err != nil {
+		return err
 	}
 
 	newRunID := state.RunID(makeID("run"))
@@ -125,7 +146,7 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 		return fmt.Errorf("save resumed session: %w", err)
 	}
 
-	return r.bot.SendMessage(ctx, chatID, &threadID, result.Message)
+	return r.deliverSessionResult(ctx, chatID, threadID, session, newRun, result, observer.deduper, false)
 }
 
 func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, goal string) {
@@ -135,8 +156,21 @@ func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, s
 		return
 	}
 
-	result, err := runner.Start(ctx, session.WorkRoot, goal)
+	observer := newStreamObserver(r, ctx, chatID, threadID, session, run)
+
+	var result codexprovider.SessionResult
+	var err error
+	streamer, canStream := runner.(streamingSessionRunner)
+	if canStream {
+		result, err = streamer.StartStream(ctx, session.WorkRoot, goal, observer.OnLine)
+	} else {
+		result, err = runner.Start(ctx, session.WorkRoot, goal)
+	}
 	if err != nil {
+		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: "+err.Error())
+		return
+	}
+	if err := observer.Err(); err != nil {
 		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: "+err.Error())
 		return
 	}
@@ -149,14 +183,9 @@ func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, s
 		return
 	}
 
-	if strings.TrimSpace(result.Message) != "" {
-		if err := r.bot.SendMessage(ctx, chatID, &threadID, result.Message); err != nil {
-			_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: "+err.Error())
-			return
-		}
+	if err := r.deliverSessionResult(ctx, chatID, threadID, session, run, result, observer.deduper, true); err != nil {
+		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: "+err.Error())
 	}
-
-	_ = r.maybeAutoReply(ctx, chatID, threadID, session, run, result.Message)
 }
 
 func (r *Runtime) runnerForProvider(provider string) sessionRunner {
@@ -172,11 +201,6 @@ func (r *Runtime) runnerForProvider(provider string) sessionRunner {
 
 func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, message string) error {
 	if r.policy == nil || strings.TrimSpace(message) == "" {
-		return nil
-	}
-
-	runner := r.runnerForProvider(session.Provider)
-	if runner == nil {
 		return nil
 	}
 
@@ -197,6 +221,18 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 	})
 	if err != nil {
 		return fmt.Errorf("normalize support event: %w", err)
+	}
+	return r.maybeAutoReplyForEvent(ctx, chatID, threadID, session, run, event)
+}
+
+func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, event events.NormalizedEvent) error {
+	if r.policy == nil {
+		return nil
+	}
+
+	runner := r.runnerForProvider(session.Provider)
+	if runner == nil {
+		return nil
 	}
 
 	snap, err := r.store.LoadSnapshot(string(session.ID))
@@ -253,24 +289,22 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 	if err := r.store.SaveSession(session); err != nil {
 		return fmt.Errorf("save auto-reply session: %w", err)
 	}
-
-	if strings.TrimSpace(replyResult.Message) == "" {
-		return nil
-	}
-	return r.bot.SendMessage(ctx, chatID, &threadID, replyResult.Message)
+	return r.deliverSessionResult(ctx, chatID, threadID, session, replyRun, replyResult, nil, false)
 }
 
 func topicNameForDraft(draft generalDraft) string {
-	title := strings.TrimSpace(draft.Task)
-	if title == "" {
-		title = draft.launchPrompt()
+	folder := strings.TrimSpace(filepath.Base(strings.TrimSpace(draft.WorkRoot)))
+	if folder == "" || folder == "." || folder == string(filepath.Separator) {
+		folder = "session"
 	}
+	provider := strings.TrimSpace(draft.Provider)
+	if provider == "" {
+		provider = "agent"
+	}
+	title := strings.Join([]string{folder, provider, time.Now().Format("1504")}, " ")
 	title = strings.Join(strings.Fields(title), " ")
 	if len(title) > 64 {
 		title = title[:64]
-	}
-	if title == "" {
-		return "new session"
 	}
 	return title
 }

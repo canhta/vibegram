@@ -19,12 +19,10 @@ const browseButtonLimit = 6
 type draftStep string
 
 const (
-	draftStepProvider  draftStep = "provider"
-	draftStepStart     draftStep = "start"
-	draftStepBrowse    draftStep = "browse"
-	draftStepTask      draftStep = "task"
-	draftStepConfirm   draftStep = "confirm"
-	draftStepValidated draftStep = "validated"
+	draftStepProvider draftStep = "provider"
+	draftStepStart    draftStep = "start"
+	draftStepBrowse   draftStep = "browse"
+	draftStepTask     draftStep = "task"
 )
 
 type browseEntry struct {
@@ -39,15 +37,14 @@ type startChoice struct {
 }
 
 type generalDraft struct {
-	UserID        int64
-	Provider      string
-	Task          string
-	ValidatedTask string
-	WorkRoot      string
-	BrowseRoot    string
-	CurrentPath   string
-	StartChoices  []startChoice
-	Step          draftStep
+	UserID       int64
+	Provider     string
+	Task         string
+	WorkRoot     string
+	BrowseRoot   string
+	CurrentPath  string
+	StartChoices []startChoice
+	Step         draftStep
 }
 
 func (r *Runtime) handleCallback(ctx context.Context, callback telegram.CallbackQuery) error {
@@ -182,46 +179,6 @@ func (r *Runtime) handleGeneralDraftCallback(ctx context.Context, chatID int64, 
 		r.saveDraft(draft)
 		return r.sendBrowsePrompt(ctx, chatID, draft)
 
-	case data == "wiz:validate":
-		if strings.TrimSpace(draft.Task) == "" || strings.TrimSpace(draft.WorkRoot) == "" {
-			return r.bot.SendMessage(ctx, chatID, nil, "Choose a folder and describe the task first.")
-		}
-		if r.support == nil {
-			return r.bot.SendMessage(ctx, chatID, nil, "Validation is not available right now. You can launch directly.")
-		}
-
-		prompt, err := r.buildValidationPrompt(draft)
-		if err != nil {
-			return r.bot.SendMessage(ctx, chatID, nil, "I couldn't scan that project right now. You can still launch directly.")
-		}
-		reply, err := r.support.Validate(ctx, prompt)
-		if err != nil {
-			return r.bot.SendMessage(ctx, chatID, nil, "Validation failed right now. You can still launch directly.")
-		}
-		reply = strings.TrimSpace(reply)
-		if reply == "" {
-			return r.bot.SendMessage(ctx, chatID, nil, "Validation came back empty. You can still launch directly.")
-		}
-
-		draft.ValidatedTask = reply
-		draft.Step = draftStepValidated
-		r.saveDraft(draft)
-
-		text, markup := renderValidatedPrompt(draft)
-		_, err = r.bot.SendMessageCard(ctx, chatID, nil, text, markup)
-		return err
-
-	case data == "wiz:launch":
-		if strings.TrimSpace(draft.Provider) == "" || strings.TrimSpace(draft.WorkRoot) == "" || strings.TrimSpace(draft.launchPrompt()) == "" {
-			return r.bot.SendMessage(ctx, chatID, nil, "Finish the draft first before launching.")
-		}
-
-		r.clearDraft(draft.UserID)
-		if err := r.launchDraftSession(ctx, chatID, draft.UserID, draft); err != nil {
-			return r.bot.SendMessage(ctx, chatID, nil, "launch failed: "+err.Error())
-		}
-		return nil
-
 	default:
 		return nil
 	}
@@ -237,15 +194,14 @@ func (r *Runtime) handleGeneralDraftText(ctx context.Context, chatID int64, draf
 	case draftStepBrowse:
 		return r.handleBrowseText(ctx, chatID, draft, text)
 
-	case draftStepTask, draftStepConfirm, draftStepValidated:
+	case draftStepTask:
 		draft.Task = text
-		draft.ValidatedTask = ""
-		draft.Step = draftStepConfirm
 		r.saveDraft(draft)
-
-		cardText, markup := renderConfirmPrompt(draft)
-		_, err := r.bot.SendMessageCard(ctx, chatID, nil, cardText, markup)
-		return err
+		if err := r.launchDraftSession(ctx, chatID, draft.UserID, draft); err != nil {
+			return r.bot.SendMessage(ctx, chatID, nil, "launch failed: "+err.Error())
+		}
+		r.clearDraft(draft.UserID)
+		return nil
 
 	default:
 		return r.bot.SendMessage(ctx, chatID, nil, "Use the current buttons to keep setting up this draft, or /new to restart.")
@@ -314,7 +270,15 @@ func (r *Runtime) buildStartChoices(userID int64) ([]startChoice, error) {
 
 	recentPath, err := ensureDirectory(recent.WorkRoot)
 	if err != nil {
-		return nil, err
+		home, homeErr := ensureDirectory(userHomeDir())
+		if homeErr != nil {
+			return nil, homeErr
+		}
+		return []startChoice{{
+			Label:    "Home",
+			Path:     home,
+			RootPath: home,
+		}}, nil
 	}
 
 	parentPath := filepath.Dir(recentPath)
@@ -430,40 +394,7 @@ func renderBrowsePrompt(draft generalDraft) (string, telegram.InlineKeyboardMark
 }
 
 func renderTaskPrompt(draft generalDraft) string {
-	return fmt.Sprintf("Folder: %s\nWhat should this session do?", draft.WorkRoot)
-}
-
-func renderConfirmPrompt(draft generalDraft) (string, telegram.InlineKeyboardMarkup) {
-	text := strings.Join([]string{
-		fmt.Sprintf("Agent: %s", draft.Provider),
-		fmt.Sprintf("Folder: %s", draft.WorkRoot),
-		fmt.Sprintf("Task: %s", draft.Task),
-		"Do you want to validate this with the agent first, or launch directly?",
-	}, "\n")
-	markup := telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
-		{
-			{Text: "Validate", CallbackData: "wiz:validate"},
-			{Text: "Launch", CallbackData: "wiz:launch"},
-		},
-		{
-			{Text: "Cancel", CallbackData: "wiz:cancel"},
-		},
-	}}
-	return text, markup
-}
-
-func renderValidatedPrompt(draft generalDraft) (string, telegram.InlineKeyboardMarkup) {
-	text := strings.Join([]string{
-		"I tightened the launch brief:",
-		draft.ValidatedTask,
-	}, "\n\n")
-	markup := telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
-		{
-			{Text: "Launch", CallbackData: "wiz:launch"},
-			{Text: "Cancel", CallbackData: "wiz:cancel"},
-		},
-	}}
-	return text, markup
+	return fmt.Sprintf("Agent: %s\nFolder: %s\nSend the task now to create the topic and launch the session.", draft.Provider, draft.WorkRoot)
 }
 
 func (r *Runtime) sendBrowsePrompt(ctx context.Context, chatID int64, draft generalDraft) error {
@@ -477,9 +408,6 @@ func (r *Runtime) sendTaskPrompt(ctx context.Context, chatID int64, draft genera
 }
 
 func (d generalDraft) launchPrompt() string {
-	if strings.TrimSpace(d.ValidatedTask) != "" {
-		return strings.TrimSpace(d.ValidatedTask)
-	}
 	return strings.TrimSpace(d.Task)
 }
 

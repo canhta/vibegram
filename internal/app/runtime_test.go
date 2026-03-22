@@ -122,6 +122,8 @@ type fakeCodexSessionRunner struct {
 	resumeSessionID string
 	resumePrompt    string
 	resumeWorkDir   string
+	startStreamLines  []string
+	resumeStreamLines []string
 	startResult     codexprovider.SessionResult
 	resumeResult    codexprovider.SessionResult
 	startRelease    chan struct{}
@@ -157,10 +159,38 @@ func (f *fakeCodexSessionRunner) Start(ctx context.Context, workDir, prompt stri
 	return f.startResult, nil
 }
 
+func (f *fakeCodexSessionRunner) StartStream(ctx context.Context, workDir, prompt string, onLine func(string)) (codexprovider.SessionResult, error) {
+	f.startWorkDir = workDir
+	f.startPrompt = prompt
+	if f.startCalled != nil {
+		select {
+		case f.startCalled <- struct{}{}:
+		default:
+		}
+	}
+	for _, line := range f.startStreamLines {
+		onLine(line)
+	}
+	if f.startRelease != nil {
+		<-f.startRelease
+	}
+	return f.startResult, nil
+}
+
 func (f *fakeCodexSessionRunner) Resume(ctx context.Context, workDir, providerSessionID, prompt string) (codexprovider.SessionResult, error) {
 	f.resumeWorkDir = workDir
 	f.resumeSessionID = providerSessionID
 	f.resumePrompt = prompt
+	return f.resumeResult, nil
+}
+
+func (f *fakeCodexSessionRunner) ResumeStream(ctx context.Context, workDir, providerSessionID, prompt string, onLine func(string)) (codexprovider.SessionResult, error) {
+	f.resumeWorkDir = workDir
+	f.resumeSessionID = providerSessionID
+	f.resumePrompt = prompt
+	for _, line := range f.resumeStreamLines {
+		onLine(line)
+	}
 	return f.resumeResult, nil
 }
 
@@ -374,6 +404,235 @@ func TestRuntimeHandleSessionTopicMessageResumesProviderSession(t *testing.T) {
 	}
 	if bot.sent[0].threadID == nil || *bot.sent[0].threadID != 42 {
 		t.Fatalf("threadID = %v, want 42", bot.sent[0].threadID)
+	}
+}
+
+func TestRuntimeHandleSessionTopicMessageAcknowledgesEmptyProviderReply(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_1",
+		ActiveRunID:    "run_1",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+	}
+	run := state.Run{
+		ID:                "run_1",
+		SessionID:         "ses_1",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeResult: codexprovider.SessionResult{
+			ProviderSessionID: "thread-123",
+			Message:           "",
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 3,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 42,
+			Text:     "continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages = %d, want 1", len(bot.sent))
+	}
+	if bot.sent[0].text != "Sent to codex. No visible reply yet." {
+		t.Fatalf("sent text = %q, want empty-reply acknowledgement", bot.sent[0].text)
+	}
+}
+
+func TestRuntimeHandleSessionTopicMessageRendersFilteredCodexEvents(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_1",
+		ActiveRunID:    "run_1",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+	}
+	run := state.Run{
+		ID:                "run_1",
+		SessionID:         "ses_1",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeResult: codexprovider.SessionResult{
+			ProviderSessionID: "thread-123",
+			Message:           "Which test framework should I use?",
+			RawOutput: strings.Join([]string{
+				`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"go test ./...","aggregated_output":"","exit_code":0,"status":"completed"}}`,
+				`{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Which test framework should I use?"}}`,
+			}, "\n"),
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 4,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 42,
+			Text:     "continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 2 {
+		t.Fatalf("sent messages = %d, want 2 filtered events", len(bot.sent))
+	}
+	if bot.sent[0].text != "Tool: shell — go test ./..." {
+		t.Fatalf("sent text[0] = %q", bot.sent[0].text)
+	}
+	if bot.sent[1].text != "Question: Which test framework should I use?" {
+		t.Fatalf("sent text[1] = %q", bot.sent[1].text)
+	}
+}
+
+func TestNewRuntimeRestoresSessionTopicMappingsFromStore(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_1",
+		ActiveRunID:    "run_1",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+	}
+	run := state.Run{
+		ID:                "run_1",
+		SessionID:         "ses_1",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeResult: codexprovider.SessionResult{
+			ProviderSessionID: "thread-123",
+			Message:           "resumed reply",
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 2,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 42,
+			Text:     "continue after restart",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if codex.resumeSessionID != "thread-123" {
+		t.Fatalf("resumeSessionID = %q, want %q", codex.resumeSessionID, "thread-123")
+	}
+	if codex.resumePrompt != "continue after restart" {
+		t.Fatalf("resumePrompt = %q, want %q", codex.resumePrompt, "continue after restart")
 	}
 }
 

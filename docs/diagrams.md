@@ -80,7 +80,7 @@ flowchart TD
     HUMAN --> SESSION
 
     GENERAL --> BOARD
-    GENERAL --> DRAFT -->|"launch creates topic"| SESSION
+    GENERAL --> DRAFT -->|"task message creates topic"| SESSION
     GENERAL -->|"blocked / failed / done / critical"| HUMAN
     SESSION -->|"important events"| HUMAN
     SESSION -->|"auto-reply notes"| HUMAN

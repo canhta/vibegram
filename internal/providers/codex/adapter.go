@@ -37,11 +37,22 @@ type transcriptItem struct {
 	Name      string          `json:"name"`      // for function_call
 	CallID    string          `json:"call_id"`   // for function_call
 	Arguments string          `json:"arguments"` // for function_call (JSON string)
+	Item      transcriptEntry `json:"item"`
 }
 
 type contentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+type transcriptEntry struct {
+	ID               string `json:"id"`
+	Type             string `json:"type"`
+	Text             string `json:"text"`
+	Command          string `json:"command"`
+	AggregatedOutput string `json:"aggregated_output"`
+	ExitCode         *int   `json:"exit_code"`
+	Status           string `json:"status"`
 }
 
 // ParseTranscriptLine parses one JSONL line from a Codex transcript.
@@ -56,14 +67,9 @@ func (a *Adapter) ParseTranscriptLine(ts time.Time, data []byte) (providers.RawO
 
 	switch item.Type {
 	case "function_call":
-		summary := fmt.Sprintf("Tool: %s", item.Name)
-		if item.Arguments != "" {
-			var args map[string]any
-			if err := json.Unmarshal([]byte(item.Arguments), &args); err == nil {
-				if cmd, ok := args["command"].(string); ok && cmd != "" {
-					summary = fmt.Sprintf("Tool: %s — %s", item.Name, truncate(cmd, 80))
-				}
-			}
+		summary, ok := summarizeFunctionCall(item)
+		if !ok {
+			return providers.RawObservation{}, false, nil
 		}
 		return providers.RawObservation{
 			Observation: events.Observation{
@@ -85,6 +91,9 @@ func (a *Adapter) ParseTranscriptLine(ts time.Time, data []byte) (providers.RawO
 		}
 		for _, block := range item.Content {
 			if block.Type == "output_text" && block.Text != "" {
+				if isMetaAgentMessageNoise(block.Text) {
+					return providers.RawObservation{}, false, nil
+				}
 				rawType := ClassifyText(block.Text)
 				if rawType != "" {
 					return providers.RawObservation{
@@ -100,6 +109,51 @@ func (a *Adapter) ParseTranscriptLine(ts time.Time, data []byte) (providers.RawO
 					}, true, nil
 				}
 			}
+		}
+		return providers.RawObservation{}, false, nil
+
+	case "item.completed":
+		switch item.Item.Type {
+		case "command_execution":
+			summary, ok := summarizeCommandExecution(item.Item.Command)
+			if !ok {
+				return providers.RawObservation{}, false, nil
+			}
+			return providers.RawObservation{
+				Observation: events.Observation{
+					SessionID:    a.sessionID,
+					RunID:        a.runID,
+					Provider:     events.ProviderCodex,
+					Source:       events.SourceTranscript,
+					RawType:      "tool_activity",
+					RawTimestamp: ts,
+					Summary:      summary,
+					Details:      map[string]any{"tool": "shell"},
+					ProviderID:   item.Item.ID,
+				},
+			}, true, nil
+
+		case "agent_message":
+			text := strings.TrimSpace(item.Item.Text)
+			if isMetaAgentMessageNoise(text) {
+				return providers.RawObservation{}, false, nil
+			}
+			rawType := ClassifyText(text)
+			if rawType == "" {
+				return providers.RawObservation{}, false, nil
+			}
+			return providers.RawObservation{
+				Observation: events.Observation{
+					SessionID:    a.sessionID,
+					RunID:        a.runID,
+					Provider:     events.ProviderCodex,
+					Source:       events.SourceTranscript,
+					RawType:      rawType,
+					RawTimestamp: ts,
+					Summary:      summarizeAgentText(text, rawType),
+					ProviderID:   item.Item.ID,
+				},
+			}, true, nil
 		}
 		return providers.RawObservation{}, false, nil
 
@@ -134,6 +188,9 @@ func ClassifyText(text string) string {
 	if strings.HasSuffix(lower, "?") {
 		return "question"
 	}
+	if strings.Contains(lower, "?") {
+		return "question"
+	}
 
 	questionPhrases := []string{
 		"should i ", "do you want me to", "which ",
@@ -155,4 +212,126 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
+}
+
+func summarizeAgentText(text, rawType string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return text
+	}
+	if rawType == "question" {
+		return text
+	}
+	return truncate(text, 200)
+}
+
+func isMetaAgentMessageNoise(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+
+	return strings.Contains(lower, "some of what we're working on might be easier to explain if i can show it to you in a web browser") &&
+		strings.Contains(lower, "want to try it?")
+}
+
+func summarizeFunctionCall(item transcriptItem) (string, bool) {
+	summary := fmt.Sprintf("Tool: %s", item.Name)
+	if item.Arguments == "" {
+		return summary, true
+	}
+
+	var args map[string]any
+	if err := json.Unmarshal([]byte(item.Arguments), &args); err != nil {
+		return summary, true
+	}
+
+	cmd, ok := args["command"].(string)
+	if !ok || strings.TrimSpace(cmd) == "" {
+		return summary, true
+	}
+	return summarizeCommandExecution(cmd)
+}
+
+func summarizeCommandExecution(command string) (string, bool) {
+	payload := normalizeShellCommand(command)
+	if payload == "" {
+		return "", false
+	}
+	if isReadOnlyNoise(payload) {
+		return "", false
+	}
+	if !isMeaningfulCommand(payload) {
+		return "", false
+	}
+	return fmt.Sprintf("Tool: shell — %s", truncate(payload, 120)), true
+}
+
+func normalizeShellCommand(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	for _, marker := range []string{" -lc ", " -c "} {
+		if idx := strings.Index(command, marker); idx >= 0 {
+			command = strings.TrimSpace(command[idx+len(marker):])
+			break
+		}
+	}
+	return trimShellQuotes(command)
+}
+
+func trimShellQuotes(command string) string {
+	command = strings.TrimSpace(command)
+	if len(command) >= 2 {
+		if (command[0] == '"' && command[len(command)-1] == '"') || (command[0] == '\'' && command[len(command)-1] == '\'') {
+			return strings.TrimSpace(command[1 : len(command)-1])
+		}
+	}
+	return command
+}
+
+func isReadOnlyNoise(command string) bool {
+	lower := strings.ToLower(strings.TrimSpace(command))
+	if lower == "" {
+		return true
+	}
+
+	readPrefixes := []string{
+		"cat ", "sed ", "rg ", "grep ", "find ", "pwd", "ls", "git log", "git status",
+		"git diff", "git show", "head ", "tail ", "wc ", "which ", "readlink ", "stat ",
+	}
+	for _, prefix := range readPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+
+	if strings.Contains(lower, "/skills/") || strings.Contains(lower, "skill.md") {
+		return true
+	}
+	return false
+}
+
+func isMeaningfulCommand(command string) bool {
+	lower := strings.ToLower(strings.TrimSpace(command))
+	if lower == "" {
+		return false
+	}
+
+	meaningfulTokens := []string{
+		"apply_patch",
+		" test", "test ", " verify", "verify ", " lint", "lint ", " check", "check ",
+		"build", " run ", " run", "start", "serve", "dev", "preview",
+		"install", " add ", "add ", " update", "upgrade", "get ",
+		"mkdir", "touch", "mv ", "cp ", "rm ", "chmod", "chown", "patch", "git apply",
+		"git commit", "git checkout", "git cherry-pick", "git merge", "git rebase",
+	}
+	for _, token := range meaningfulTokens {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+
+	return strings.Contains(command, ">") || strings.Contains(command, ">>") || strings.Contains(lower, "tee ")
 }

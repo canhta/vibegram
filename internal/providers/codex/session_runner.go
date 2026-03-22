@@ -16,6 +16,10 @@ type commandRunner interface {
 	Run(ctx context.Context, req runner.Request) (runner.Result, error)
 }
 
+type streamingCommandRunner interface {
+	RunStream(ctx context.Context, req runner.Request, onLine func(string)) (runner.Result, error)
+}
+
 type SessionResult = providers.SessionResult
 
 type SessionRunner struct {
@@ -34,8 +38,21 @@ func (r *SessionRunner) Start(ctx context.Context, workDir, prompt string) (Sess
 	return r.run(ctx, workDir, []string{"exec", "--json", "--skip-git-repo-check", "-C", workDir, prompt}, true)
 }
 
+func (r *SessionRunner) StartStream(ctx context.Context, workDir, prompt string, onLine func(string)) (SessionResult, error) {
+	return r.runStream(ctx, workDir, []string{"exec", "--json", "--skip-git-repo-check", "-C", workDir, prompt}, true, onLine)
+}
+
 func (r *SessionRunner) Resume(ctx context.Context, workDir, providerSessionID, prompt string) (SessionResult, error) {
-	result, err := r.run(ctx, workDir, []string{"exec", "resume", providerSessionID, "--json", "--skip-git-repo-check", "-C", workDir, prompt}, false)
+	result, err := r.run(ctx, workDir, []string{"exec", "resume", providerSessionID, "--json", "--skip-git-repo-check", prompt}, false)
+	if err != nil {
+		return SessionResult{}, err
+	}
+	result.ProviderSessionID = providerSessionID
+	return result, nil
+}
+
+func (r *SessionRunner) ResumeStream(ctx context.Context, workDir, providerSessionID, prompt string, onLine func(string)) (SessionResult, error) {
+	result, err := r.runStream(ctx, workDir, []string{"exec", "resume", providerSessionID, "--json", "--skip-git-repo-check", prompt}, false, onLine)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -44,6 +61,10 @@ func (r *SessionRunner) Resume(ctx context.Context, workDir, providerSessionID, 
 }
 
 func (r *SessionRunner) run(ctx context.Context, workDir string, args []string, parseThreadID bool) (SessionResult, error) {
+	return r.runStream(ctx, workDir, args, parseThreadID, nil)
+}
+
+func (r *SessionRunner) runStream(ctx context.Context, workDir string, args []string, parseThreadID bool, onLine func(string)) (SessionResult, error) {
 	outputFile, err := r.tempOutputFile()
 	if err != nil {
 		return SessionResult{}, err
@@ -52,11 +73,18 @@ func (r *SessionRunner) run(ctx context.Context, workDir string, args []string, 
 
 	args = append(args[:len(args)-1], append([]string{"-o", outputFile}, args[len(args)-1])...)
 
-	res, err := r.runner.Run(ctx, runner.Request{
+	req := runner.Request{
 		CommandPath: r.commandPath,
 		Args:        args,
 		Dir:         workDir,
-	})
+	}
+
+	var res runner.Result
+	if streamer, ok := r.runner.(streamingCommandRunner); ok && onLine != nil {
+		res, err = streamer.RunStream(ctx, req, onLine)
+	} else {
+		res, err = r.runner.Run(ctx, req)
+	}
 	if err != nil {
 		return SessionResult{}, fmt.Errorf("run codex: %w", err)
 	}

@@ -30,6 +30,11 @@ type sessionRunner interface {
 	Resume(ctx context.Context, workDir, providerSessionID, prompt string) (codexprovider.SessionResult, error)
 }
 
+type streamingSessionRunner interface {
+	StartStream(ctx context.Context, workDir, prompt string, onLine func(string)) (codexprovider.SessionResult, error)
+	ResumeStream(ctx context.Context, workDir, providerSessionID, prompt string, onLine func(string)) (codexprovider.SessionResult, error)
+}
+
 type policyEngine interface {
 	Evaluate(ctx context.Context, snap state.Snapshot, event events.NormalizedEvent) (policy.PolicyDecision, error)
 }
@@ -54,7 +59,7 @@ type Runtime struct {
 }
 
 func NewRuntime(cfg config.Config, store *state.Store, bot botClient, codex sessionRunner, claude sessionRunner, policy policyEngine, support supportResponder) *Runtime {
-	return &Runtime{
+	rt := &Runtime{
 		cfg:              cfg,
 		store:            store,
 		bot:              bot,
@@ -66,6 +71,18 @@ func NewRuntime(cfg config.Config, store *state.Store, bot botClient, codex sess
 		sessionsByThread: make(map[int]state.SessionID),
 		draftsByUser:     make(map[int64]generalDraft),
 	}
+	if store != nil {
+		sessions, err := store.ListSessions()
+		if err == nil {
+			for _, session := range sessions {
+				if session.SessionTopicID <= 1 {
+					continue
+				}
+				rt.sessionsByThread[int(session.SessionTopicID)] = session.ID
+			}
+		}
+	}
+	return rt
 }
 
 func (r *Runtime) HandleUpdate(ctx context.Context, update telegram.Update) error {

@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -33,6 +35,14 @@ func New() *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
+	return r.run(ctx, req, nil)
+}
+
+func (r *Runner) RunStream(ctx context.Context, req Request, onLine func(string)) (Result, error) {
+	return r.run(ctx, req, onLine)
+}
+
+func (r *Runner) run(ctx context.Context, req Request, onLine func(string)) (Result, error) {
 	if req.CommandPath == "" {
 		return Result{}, fmt.Errorf("command path is required")
 	}
@@ -56,15 +66,14 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	var output bytes.Buffer
 	copyErrCh := make(chan error, 1)
 	go func() {
-		_, err := io.Copy(&output, ptmx)
-		copyErrCh <- err
+		copyErrCh <- copyOutput(ptmx, &output, onLine)
 	}()
 
 	waitErr := cmd.Wait()
 	_ = ptmx.Close()
 	copyErr := <-copyErrCh
 
-	if copyErr != nil && !errors.Is(copyErr, os.ErrClosed) && !errors.Is(copyErr, syscall.EIO) {
+	if copyErr != nil && !errors.Is(copyErr, io.EOF) && !errors.Is(copyErr, os.ErrClosed) && !errors.Is(copyErr, syscall.EIO) {
 		return Result{}, fmt.Errorf("capture pty output: %w", copyErr)
 	}
 
@@ -83,6 +92,50 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 
 	return result, nil
+}
+
+func copyOutput(src io.Reader, dst *bytes.Buffer, onLine func(string)) error {
+	if onLine == nil {
+		_, err := io.Copy(dst, src)
+		return err
+	}
+
+	reader := bufio.NewReader(src)
+	var pending bytes.Buffer
+	for {
+		chunk, err := reader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			_, _ = dst.Write(chunk)
+			_, _ = pending.Write(chunk)
+			flushPendingLines(&pending, onLine, false)
+		}
+		if err != nil {
+			flushPendingLines(&pending, onLine, true)
+			return err
+		}
+	}
+}
+
+func flushPendingLines(pending *bytes.Buffer, onLine func(string), flushRemainder bool) {
+	if pending == nil || onLine == nil {
+		return
+	}
+
+	for {
+		data := pending.Bytes()
+		index := bytes.IndexByte(data, '\n')
+		if index < 0 {
+			break
+		}
+		line := strings.TrimRight(string(data[:index]), "\r")
+		onLine(line)
+		pending.Next(index + 1)
+	}
+
+	if flushRemainder && pending.Len() > 0 {
+		onLine(strings.TrimRight(pending.String(), "\r\n"))
+		pending.Reset()
+	}
 }
 
 func exitCode(state *os.ProcessState, waitErr error) int {

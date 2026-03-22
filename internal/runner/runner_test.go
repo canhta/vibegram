@@ -47,6 +47,50 @@ func TestRunReportsNonZeroExitCode(t *testing.T) {
 	}
 }
 
+func TestRunStreamEmitsLinesBeforeProcessExit(t *testing.T) {
+	r := runner.New()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	firstLine := make(chan string, 1)
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.RunStream(ctx, runner.Request{
+			CommandPath: "/bin/sh",
+			Args: []string{"-c", `
+printf 'first line\n'
+sleep 1
+printf 'second line\n'
+`},
+		}, func(line string) {
+			select {
+			case firstLine <- line:
+			default:
+			}
+		})
+		done <- err
+	}()
+
+	select {
+	case got := <-firstLine:
+		if got != "first line" {
+			t.Fatalf("first streamed line = %q, want %q", got, "first line")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("did not receive streamed line before process exit")
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunStream() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunStream() did not finish")
+	}
+}
+
 func TestRunStopsWhenContextIsCancelled(t *testing.T) {
 	r := runner.New()
 

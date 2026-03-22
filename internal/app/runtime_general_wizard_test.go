@@ -188,7 +188,110 @@ func TestRuntimeGeneralWizardUsesHistoryFirstStartChoices(t *testing.T) {
 	}
 }
 
-func TestRuntimeGeneralWizardValidateThenLaunchUsesValidatedPrompt(t *testing.T) {
+func TestRuntimeGeneralWizardFallsBackToHomeWhenRecentHistoryIsMissing(t *testing.T) {
+	projectRoot := t.TempDir()
+	projectX := filepath.Join(projectRoot, "project-x")
+	if err := os.Mkdir(projectX, 0o755); err != nil {
+		t.Fatalf("Mkdir(%s) error = %v", projectX, err)
+	}
+
+	missingRecent := filepath.Join(projectRoot, "missing-project")
+
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := store.SaveSession(state.Session{
+		ID:             "ses_older",
+		OwnerUserID:    1001,
+		GeneralTopicID: 1,
+		SessionTopicID: 41,
+		WorkRoot:       projectX,
+		Status:         state.SessionStatusDone,
+		Phase:          state.SessionPhaseWaiting,
+	}); err != nil {
+		t.Fatalf("SaveSession(older) error = %v", err)
+	}
+	if err := store.SaveSession(state.Session{
+		ID:             "ses_recent_missing",
+		OwnerUserID:    1001,
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		WorkRoot:       missingRecent,
+		Status:         state.SessionStatusDone,
+		Phase:          state.SessionPhaseWaiting,
+	}); err != nil {
+		t.Fatalf("SaveSession(recent) error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Providers: config.ProviderConfig{
+				CodexCommand: "/usr/local/bin/codex",
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	if err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 20,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/new",
+		},
+	}); err != nil {
+		t.Fatalf("HandleUpdate(/new) error = %v", err)
+	}
+
+	if err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 21,
+		CallbackQuery: &telegram.CallbackQuery{
+			ID:         "cb-provider-codex",
+			FromUserID: 1001,
+			Data:       "wiz:provider:codex",
+			Message: telegram.UpdateMessage{
+				MessageID: bot.sent[0].messageID,
+				UserID:    1001,
+				ChatID:    -1001234567890,
+				ThreadID:  1,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("HandleUpdate(provider) error = %v", err)
+	}
+
+	if len(bot.sent) != 2 {
+		t.Fatalf("sent messages = %d, want 2", len(bot.sent))
+	}
+	if !strings.Contains(bot.sent[1].text, "Where should we start looking?") {
+		t.Fatalf("second prompt = %q", bot.sent[1].text)
+	}
+	if bot.sent[1].markup == nil {
+		t.Fatal("second prompt markup = nil, want location buttons")
+	}
+
+	labels := inlineButtonLabels(*bot.sent[1].markup)
+	if !containsLabel(labels, "Home") {
+		t.Fatalf("location labels = %v, want Home fallback when recent history is missing", labels)
+	}
+	if containsLabel(labels, "project-x") {
+		t.Fatalf("location labels = %v, do not want stale history suggestions after missing recent history", labels)
+	}
+}
+
+func TestRuntimeGeneralWizardTaskLaunchesDirectlyWithoutValidation(t *testing.T) {
 	projectRoot := t.TempDir()
 	projectX := filepath.Join(projectRoot, "project-x")
 	if err := os.Mkdir(projectX, 0o755); err != nil {
@@ -220,8 +323,8 @@ func TestRuntimeGeneralWizardValidateThenLaunchUsesValidatedPrompt(t *testing.T)
 	bot := &fakeBotClient{nextThreadID: 77}
 	codex := &fakeCodexSessionRunner{
 		startResult: codexprovider.SessionResult{
-			ProviderSessionID: "thread-validated",
-			Message:           "validated launch complete",
+			ProviderSessionID: "thread-direct",
+			Message:           "direct launch complete",
 		},
 	}
 	support := &fakeSupportResponder{
@@ -246,65 +349,35 @@ func TestRuntimeGeneralWizardValidateThenLaunchUsesValidatedPrompt(t *testing.T)
 		support,
 	)
 
-	runGeneralWizardToTaskPrompt(t, rt, bot, 1001, "build a small seo page")
+	runGeneralWizardToTaskEntryPrompt(t, rt, bot, 1001)
 
 	if len(bot.createdTopicNames) != 0 {
-		t.Fatalf("createdTopicNames = %v, want none before validate/launch", bot.createdTopicNames)
+		t.Fatalf("createdTopicNames = %v, want none before task send", bot.createdTopicNames)
 	}
 
 	if err := rt.HandleUpdate(context.Background(), telegram.Update{
 		UpdateID: 10,
-		CallbackQuery: &telegram.CallbackQuery{
-			ID:         "cb-validate",
-			FromUserID: 1001,
-			Data:       "wiz:validate",
-			Message: telegram.UpdateMessage{
-				MessageID: bot.sent[len(bot.sent)-1].messageID,
-				UserID:    1001,
-				ChatID:    -1001234567890,
-				ThreadID:  1,
-			},
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "build a small seo page",
 		},
 	}); err != nil {
-		t.Fatalf("HandleUpdate(validate) error = %v", err)
+		t.Fatalf("HandleUpdate(task) error = %v", err)
 	}
-
-	if !strings.Contains(support.validatePrompt, "build a small seo page") {
-		t.Fatalf("validatePrompt = %q, want task text", support.validatePrompt)
+	if support.validatePrompt != "" {
+		t.Fatalf("validatePrompt = %q, want no validation call", support.validatePrompt)
 	}
-	if !strings.Contains(support.validatePrompt, "go.mod") {
-		t.Fatalf("validatePrompt = %q, want project context", support.validatePrompt)
-	}
-	if len(bot.createdTopicNames) != 0 {
-		t.Fatalf("createdTopicNames = %v, want none after validate before launch", bot.createdTopicNames)
-	}
-	if !strings.Contains(bot.sent[len(bot.sent)-1].text, "I tightened the launch brief") {
-		t.Fatalf("validate message = %q", bot.sent[len(bot.sent)-1].text)
-	}
-
-	if err := rt.HandleUpdate(context.Background(), telegram.Update{
-		UpdateID: 11,
-		CallbackQuery: &telegram.CallbackQuery{
-			ID:         "cb-launch",
-			FromUserID: 1001,
-			Data:       "wiz:launch",
-			Message: telegram.UpdateMessage{
-				MessageID: bot.sent[len(bot.sent)-1].messageID,
-				UserID:    1001,
-				ChatID:    -1001234567890,
-				ThreadID:  1,
-			},
-		},
-	}); err != nil {
-		t.Fatalf("HandleUpdate(launch) error = %v", err)
-	}
-
-	waitForRuntime(t, func() bool { return codex.startPrompt != "" }, "validated launch")
-	if codex.startPrompt != support.validateReply {
-		t.Fatalf("startPrompt = %q, want validated reply %q", codex.startPrompt, support.validateReply)
+	waitForRuntime(t, func() bool { return codex.startPrompt != "" }, "direct launch")
+	if codex.startPrompt != "build a small seo page" {
+		t.Fatalf("startPrompt = %q, want raw task text", codex.startPrompt)
 	}
 	if len(bot.createdTopicNames) != 1 {
-		t.Fatalf("createdTopicNames = %v, want one topic after launch", bot.createdTopicNames)
+		t.Fatalf("createdTopicNames = %v, want one topic after task send", bot.createdTopicNames)
+	}
+	if !strings.Contains(bot.createdTopicNames[0], "project-x") || !strings.Contains(bot.createdTopicNames[0], "codex") {
+		t.Fatalf("topic name = %q, want folder and provider", bot.createdTopicNames[0])
 	}
 }
 
@@ -350,7 +423,7 @@ func TestRuntimeGeneralWizardCancelDoesNotCreateTopic(t *testing.T) {
 		nil,
 	)
 
-	runGeneralWizardToTaskPrompt(t, rt, bot, 1001, "build a small seo page")
+	runGeneralWizardToTaskEntryPrompt(t, rt, bot, 1001)
 
 	if err := rt.HandleUpdate(context.Background(), telegram.Update{
 		UpdateID: 12,
@@ -385,7 +458,7 @@ func TestRuntimeGeneralWizardCancelDoesNotCreateTopic(t *testing.T) {
 	}
 }
 
-func runGeneralWizardToTaskPrompt(t *testing.T, rt *Runtime, bot *fakeBotClient, userID int64, task string) {
+func runGeneralWizardToTaskEntryPrompt(t *testing.T, rt *Runtime, bot *fakeBotClient, userID int64) {
 	t.Helper()
 
 	if err := rt.HandleUpdate(context.Background(), telegram.Update{
@@ -451,25 +524,9 @@ func runGeneralWizardToTaskPrompt(t *testing.T, rt *Runtime, bot *fakeBotClient,
 		t.Fatalf("HandleUpdate(choose here) error = %v", err)
 	}
 
-	if err := rt.HandleUpdate(context.Background(), telegram.Update{
-		UpdateID: 8,
-		Message: telegram.UpdateMessage{
-			UserID:   userID,
-			ChatID:   -1001234567890,
-			ThreadID: 1,
-			Text:     task,
-		},
-	}); err != nil {
-		t.Fatalf("HandleUpdate(task) error = %v", err)
-	}
-
 	last := bot.sent[len(bot.sent)-1]
-	if last.markup == nil {
-		t.Fatalf("action prompt markup = nil, want validate/launch buttons")
-	}
-	labels := inlineButtonLabels(*last.markup)
-	if !containsLabel(labels, "Validate") || !containsLabel(labels, "Launch") {
-		t.Fatalf("action labels = %v, want Validate and Launch", labels)
+	if strings.TrimSpace(last.text) == "" || !strings.Contains(last.text, "Send the task now to create the topic and launch the session.") {
+		t.Fatalf("task prompt = %q, want task entry prompt", last.text)
 	}
 }
 

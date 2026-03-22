@@ -38,7 +38,7 @@ Additional platform facts that matter:
 Purpose:
 
 - create new sessions
-- host the slash-only `/new` draft wizard before a session topic exists
+- host the slash-only `/new` draft flow before a session topic exists
 - show active session overview
 - maintain the current attention queue
 - alert on blocked, failed, done, and critical events
@@ -79,7 +79,7 @@ General topic -> /new draft
   -> choose agent
   -> choose folder
   -> type task
-  -> validate or launch
+  -> task message launches directly
   -> daemon allocates app session_id
   -> daemon creates session topic
   -> daemon launches run
@@ -99,7 +99,7 @@ The General topic should be treated specially:
 
 ### General topic messages
 
-- `/new` draft steps and confirmations
+- `/new` draft steps
 - new session created
 - session blocked
 - session failed

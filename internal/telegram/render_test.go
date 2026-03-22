@@ -115,6 +115,14 @@ func TestRenderLongSummaryTruncated(t *testing.T) {
 	}
 }
 
+func TestRenderLongQuestionKeepsFullSummary(t *testing.T) {
+	longSummary := strings.Repeat("q", 250) + "?"
+	out := Render(ev(events.EventTypeQuestion, longSummary))
+	if !strings.Contains(out, longSummary) {
+		t.Fatalf("expected full question summary in output, got %q", out)
+	}
+}
+
 func TestRenderMessageLimit(t *testing.T) {
 	longSummary := strings.Repeat("y", 5000)
 	out := Render(ev(events.EventTypeBlocked, longSummary))

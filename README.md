@@ -126,7 +126,7 @@ The current runnable slice now does real control-room work:
 - creates and loads local state
 - polls Telegram updates
 - handles `General` commands like `/new`, `/status`, and `/cleanup`
-- launches Codex and Claude sessions after the General-topic draft flow
+- launches Codex and Claude sessions as soon as a General-topic draft has provider, folder, and task
 
 Local run command:
 

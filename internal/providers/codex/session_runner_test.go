@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -49,6 +50,45 @@ func TestSessionRunnerResumeReturnsLastMessage(t *testing.T) {
 	}
 }
 
+func TestSessionRunnerResumeDoesNotPassStartOnlyCdFlag(t *testing.T) {
+	workDir := t.TempDir()
+	fake := &capturingRunner{
+		result: runner.Result{
+			ExitCode: 0,
+			Output:   `{"type":"thread.started","thread_id":"thread-123"}`,
+		},
+	}
+	r := NewSessionRunner(fake, "/usr/local/bin/codex")
+
+	result, err := r.Resume(context.Background(), workDir, "thread-123", "follow-up prompt")
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+
+	if slices.Contains(fake.req.Args, "-C") {
+		t.Fatalf("resume args = %v, do not want -C for codex exec resume", fake.req.Args)
+	}
+	if result.ProviderSessionID != "thread-123" {
+		t.Fatalf("ProviderSessionID = %q, want %q", result.ProviderSessionID, "thread-123")
+	}
+}
+
+type capturingRunner struct {
+	req    runner.Request
+	result runner.Result
+	err    error
+}
+
+func (r *capturingRunner) Run(ctx context.Context, req runner.Request) (runner.Result, error) {
+	r.req = req
+	if outputFile, ok := outputFileFromArgs(req.Args); ok {
+		if err := os.WriteFile(outputFile, []byte("assistant final message"), 0o644); err != nil {
+			return runner.Result{}, err
+		}
+	}
+	return r.result, r.err
+}
+
 func writeFakeCodexScript(t *testing.T) string {
 	t.Helper()
 
@@ -80,4 +120,13 @@ fi
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	return path
+}
+
+func outputFileFromArgs(args []string) (string, bool) {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "-o" || args[i] == "--output-last-message" {
+			return args[i+1], true
+		}
+	}
+	return "", false
 }
