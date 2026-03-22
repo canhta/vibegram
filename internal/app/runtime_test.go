@@ -363,6 +363,49 @@ func TestRuntimeHandleGeneralSlashStartCreatesSetupCardWithoutLaunching(t *testi
 	}
 }
 
+func TestRuntimeHandleGeneralSlashStartWithoutGoalShowsUsage(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 33,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/start",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages = %d, want 1", len(bot.sent))
+	}
+	if !strings.Contains(bot.sent[0].text, "/start <goal>") {
+		t.Fatalf("usage message = %q, want /start usage", bot.sent[0].text)
+	}
+}
+
 func TestRuntimeHandleSetupCallbacksLaunchAfterProviderAndDirectorySelection(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)

@@ -117,13 +117,19 @@ func (r *Runtime) handleGeneralTopic(ctx context.Context, chatID, userID int64, 
 		msg := fmt.Sprintf("status: ok (%d sessions)", r.sessionCount())
 		return r.bot.SendMessage(ctx, chatID, nil, msg)
 
+	case text == "cleanup":
+		return r.bot.SendMessage(ctx, chatID, nil, "Usage: /cleanup <topic_id[,topic_id]> or /cleanup all")
+
 	case strings.HasPrefix(text, "cleanup "):
 		return r.cleanupTopics(ctx, chatID, strings.TrimSpace(strings.TrimPrefix(text, "cleanup ")))
+
+	case text == "start":
+		return r.bot.SendMessage(ctx, chatID, nil, "Usage: /start <goal>")
 
 	case strings.HasPrefix(text, "start "):
 		goal := strings.TrimSpace(strings.TrimPrefix(text, "start "))
 		if goal == "" {
-			return nil
+			return r.bot.SendMessage(ctx, chatID, nil, "Usage: /start <goal>")
 		}
 		if err := r.startSession(ctx, chatID, userID, goal); err != nil {
 			return r.bot.SendMessage(ctx, chatID, nil, "start failed: "+err.Error())
