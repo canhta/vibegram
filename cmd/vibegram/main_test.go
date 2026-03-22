@@ -66,3 +66,23 @@ func TestRunReturnsConfigErrors(t *testing.T) {
 		t.Fatalf("run() error = %q, want missing token error", err)
 	}
 }
+
+func TestShouldUseSignalContext(t *testing.T) {
+	tests := []struct {
+		args []string
+		want bool
+	}{
+		{args: nil, want: true},
+		{args: []string{}, want: true},
+		{args: []string{"daemon"}, want: true},
+		{args: []string{"daemon", "--env-file", "/etc/vibegram/env"}, want: true},
+		{args: []string{"init"}, want: false},
+		{args: []string{"service", "install"}, want: false},
+	}
+
+	for _, tt := range tests {
+		if got := shouldUseSignalContext(tt.args); got != tt.want {
+			t.Fatalf("shouldUseSignalContext(%v) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
