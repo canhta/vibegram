@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/canhta/vibegram/internal/providers"
 	"github.com/canhta/vibegram/internal/runner"
 )
 
@@ -15,32 +16,26 @@ type commandRunner interface {
 	Run(ctx context.Context, req runner.Request) (runner.Result, error)
 }
 
-type SessionResult struct {
-	ProviderSessionID string
-	Message           string
-	RawOutput         string
-}
+type SessionResult = providers.SessionResult
 
 type SessionRunner struct {
 	runner      commandRunner
 	commandPath string
-	workDir     string
 }
 
-func NewSessionRunner(r commandRunner, commandPath, workDir string) *SessionRunner {
+func NewSessionRunner(r commandRunner, commandPath string) *SessionRunner {
 	return &SessionRunner{
 		runner:      r,
 		commandPath: commandPath,
-		workDir:     workDir,
 	}
 }
 
-func (r *SessionRunner) Start(ctx context.Context, prompt string) (SessionResult, error) {
-	return r.run(ctx, []string{"exec", "--json", "--skip-git-repo-check", "-C", r.workDir, prompt}, true)
+func (r *SessionRunner) Start(ctx context.Context, workDir, prompt string) (SessionResult, error) {
+	return r.run(ctx, workDir, []string{"exec", "--json", "--skip-git-repo-check", "-C", workDir, prompt}, true)
 }
 
-func (r *SessionRunner) Resume(ctx context.Context, providerSessionID, prompt string) (SessionResult, error) {
-	result, err := r.run(ctx, []string{"exec", "resume", providerSessionID, "--json", "--skip-git-repo-check", "-C", r.workDir, prompt}, false)
+func (r *SessionRunner) Resume(ctx context.Context, workDir, providerSessionID, prompt string) (SessionResult, error) {
+	result, err := r.run(ctx, workDir, []string{"exec", "resume", providerSessionID, "--json", "--skip-git-repo-check", "-C", workDir, prompt}, false)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -48,7 +43,7 @@ func (r *SessionRunner) Resume(ctx context.Context, providerSessionID, prompt st
 	return result, nil
 }
 
-func (r *SessionRunner) run(ctx context.Context, args []string, parseThreadID bool) (SessionResult, error) {
+func (r *SessionRunner) run(ctx context.Context, workDir string, args []string, parseThreadID bool) (SessionResult, error) {
 	outputFile, err := r.tempOutputFile()
 	if err != nil {
 		return SessionResult{}, err
@@ -60,7 +55,7 @@ func (r *SessionRunner) run(ctx context.Context, args []string, parseThreadID bo
 	res, err := r.runner.Run(ctx, runner.Request{
 		CommandPath: r.commandPath,
 		Args:        args,
-		Dir:         r.workDir,
+		Dir:         workDir,
 	})
 	if err != nil {
 		return SessionResult{}, fmt.Errorf("run codex: %w", err)

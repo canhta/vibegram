@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,43 +23,58 @@ import (
 type botClient interface {
 	GetUpdates(ctx context.Context, offset int64) ([]telegram.Update, error)
 	SendMessage(ctx context.Context, chatID int64, threadID *int, text string) error
+	SendMessageCard(ctx context.Context, chatID int64, threadID *int, text string, markup telegram.InlineKeyboardMarkup) (int, error)
+	EditMessageCard(ctx context.Context, chatID int64, messageID int, text string, markup telegram.InlineKeyboardMarkup) error
+	AnswerCallback(ctx context.Context, callbackID, text string) error
 	CreateForumTopic(ctx context.Context, chatID int64, name string) (int, error)
 	DeleteForumTopic(ctx context.Context, chatID int64, threadID int) error
 }
 
-type codexSessionRunner interface {
-	Start(ctx context.Context, prompt string) (codexprovider.SessionResult, error)
-	Resume(ctx context.Context, providerSessionID, prompt string) (codexprovider.SessionResult, error)
+type sessionRunner interface {
+	Start(ctx context.Context, workDir, prompt string) (codexprovider.SessionResult, error)
+	Resume(ctx context.Context, workDir, providerSessionID, prompt string) (codexprovider.SessionResult, error)
 }
 
 type policyEngine interface {
 	Evaluate(ctx context.Context, snap state.Snapshot, event events.NormalizedEvent) (policy.PolicyDecision, error)
 }
 
+type supportResponder interface {
+	Reply(ctx context.Context, text string) (string, error)
+}
+
 type Runtime struct {
 	cfg              config.Config
 	store            *state.Store
 	bot              botClient
-	codex            codexSessionRunner
+	codex            sessionRunner
+	opencode         sessionRunner
 	policy           policyEngine
+	support          supportResponder
 	auth             *telegram.Authorizer
 	sessionsByThread map[int]state.SessionID
 	mu               sync.RWMutex
 }
 
-func NewRuntime(cfg config.Config, store *state.Store, bot botClient, codex codexSessionRunner, policy policyEngine) *Runtime {
+func NewRuntime(cfg config.Config, store *state.Store, bot botClient, codex sessionRunner, opencode sessionRunner, policy policyEngine, support supportResponder) *Runtime {
 	return &Runtime{
 		cfg:              cfg,
 		store:            store,
 		bot:              bot,
 		codex:            codex,
+		opencode:         opencode,
 		policy:           policy,
+		support:          support,
 		auth:             telegram.NewAuthorizer(cfg.Telegram.AdminIDs, cfg.Telegram.OperatorIDs),
 		sessionsByThread: make(map[int]state.SessionID),
 	}
 }
 
 func (r *Runtime) HandleUpdate(ctx context.Context, update telegram.Update) error {
+	if update.CallbackQuery != nil {
+		return r.handleCallback(ctx, *update.CallbackQuery)
+	}
+
 	text := strings.TrimSpace(update.Message.Text)
 	if text == "" {
 		return nil
@@ -77,6 +94,20 @@ func (r *Runtime) HandleUpdate(ctx context.Context, update telegram.Update) erro
 func (r *Runtime) handleGeneralTopic(ctx context.Context, chatID, userID int64, text string) error {
 	if !r.auth.CanSendCommand(userID) {
 		return nil
+	}
+
+	if !strings.HasPrefix(strings.TrimSpace(text), "/") {
+		if r.support == nil {
+			return nil
+		}
+		reply, err := r.support.Reply(ctx, text)
+		if err != nil {
+			return fmt.Errorf("support reply: %w", err)
+		}
+		if strings.TrimSpace(reply) == "" {
+			return nil
+		}
+		return r.bot.SendMessage(ctx, chatID, nil, reply)
 	}
 
 	text = normalizeGeneralCommand(text)
@@ -152,53 +183,41 @@ func (r *Runtime) startSession(ctx context.Context, chatID, userID int64, goal s
 		return fmt.Errorf("create forum topic: %w", err)
 	}
 
-	if err := r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("Session started: %s", goal)); err != nil {
-		return fmt.Errorf("send general start notice: %w", err)
-	}
-
 	sessionID := state.SessionID(makeID("ses"))
-	runID := state.RunID(makeID("run"))
-	now := time.Now().UTC()
-
 	session := state.Session{
 		ID:               sessionID,
-		ActiveRunID:      runID,
-		Provider:         "codex",
 		GeneralTopicID:   1,
 		SessionTopicID:   int64(threadID),
 		Status:           state.SessionStatusRunning,
-		Phase:            state.SessionPhasePlanning,
+		Phase:            state.SessionPhaseWaiting,
 		LastGoal:         goal,
 		EscalationState:  state.EscalationStateNone,
 		OwnerUserID:      userID,
 		LastHumanActorID: userID,
 	}
-	run := state.Run{
-		ID:                runID,
-		SessionID:         sessionID,
-		Provider:          "codex",
-		ProviderSessionID: "",
-		Status:            state.RunStatusActive,
-		StartedAt:         now,
-		UpdatedAt:         now,
-	}
 
 	if err := r.store.SaveSession(session); err != nil {
 		return fmt.Errorf("save session: %w", err)
 	}
-	if err := r.store.SaveRun(run); err != nil {
-		return fmt.Errorf("save run: %w", err)
+
+	if err := r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("Session created: %s", goal)); err != nil {
+		return fmt.Errorf("send general start notice: %w", err)
 	}
 
 	r.mu.Lock()
 	r.sessionsByThread[threadID] = sessionID
 	r.mu.Unlock()
 
-	if err := r.bot.SendMessage(ctx, chatID, &threadID, "Session starting: "+goal); err != nil {
-		return err
+	setupText, setupMarkup := r.renderSetupCard(session)
+	messageID, err := r.bot.SendMessageCard(ctx, chatID, &threadID, setupText, setupMarkup)
+	if err != nil {
+		return fmt.Errorf("send setup card: %w", err)
+	}
+	session.SetupMessageID = messageID
+	if err := r.store.SaveSession(session); err != nil {
+		return fmt.Errorf("save setup session: %w", err)
 	}
 
-	go r.finishStart(ctx, chatID, threadID, session, run, goal)
 	return nil
 }
 
@@ -216,6 +235,9 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 	if err != nil {
 		return fmt.Errorf("load session: %w", err)
 	}
+	if session.ActiveRunID == "" {
+		return r.handleSetupTopicInput(ctx, chatID, threadID, session, text)
+	}
 	run, err := r.store.LoadRun(session.ActiveRunID)
 	if err != nil {
 		return fmt.Errorf("load run: %w", err)
@@ -224,9 +246,14 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 		return r.bot.SendMessage(ctx, chatID, &threadID, "Session is still starting; try again shortly.")
 	}
 
-	result, err := r.codex.Resume(ctx, run.ProviderSessionID, text)
+	runner := r.runnerForProvider(session.Provider)
+	if runner == nil {
+		return fmt.Errorf("unknown provider %q", session.Provider)
+	}
+
+	result, err := runner.Resume(ctx, session.WorkRoot, run.ProviderSessionID, text)
 	if err != nil {
-		return fmt.Errorf("resume codex session: %w", err)
+		return fmt.Errorf("resume provider session: %w", err)
 	}
 
 	newRunID := state.RunID(makeID("run"))
@@ -234,7 +261,7 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 	newRun := state.Run{
 		ID:                newRunID,
 		SessionID:         session.ID,
-		Provider:          "codex",
+		Provider:          session.Provider,
 		ProviderSessionID: result.ProviderSessionID,
 		Status:            state.RunStatusExited,
 		StartedAt:         now,
@@ -261,10 +288,6 @@ func normalizeGeneralCommand(text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return ""
-	}
-
-	if strings.HasPrefix(strings.ToLower(text), "clean up ") {
-		text = "cleanup " + strings.TrimSpace(text[len("clean up "):])
 	}
 
 	fields := strings.Fields(text)
@@ -308,6 +331,85 @@ func parseThreadIDs(raw string) ([]int, error) {
 		return nil, fmt.Errorf("at least one topic id is required")
 	}
 	return threadIDs, nil
+}
+
+func (r *Runtime) handleCallback(ctx context.Context, callback telegram.CallbackQuery) error {
+	if !r.auth.CanSendCommand(callback.FromUserID) {
+		return nil
+	}
+
+	threadID := callback.Message.ThreadID
+	if threadID == 0 {
+		threadID = 1
+	}
+	if threadID == 1 {
+		return r.bot.AnswerCallback(ctx, callback.ID, "")
+	}
+
+	sessionID, ok := r.sessionForThread(threadID)
+	if !ok {
+		return r.bot.AnswerCallback(ctx, callback.ID, "Session not found")
+	}
+
+	session, err := r.store.LoadSession(sessionID)
+	if err != nil {
+		return fmt.Errorf("load session: %w", err)
+	}
+	if session.ActiveRunID != "" {
+		return r.bot.AnswerCallback(ctx, callback.ID, "Session already launched")
+	}
+
+	switch callback.Data {
+	case "set:prov:codex":
+		session.Provider = "codex"
+		session.SetupAwaiting = ""
+	case "set:prov:opencode":
+		session.Provider = "opencode"
+		session.SetupAwaiting = ""
+	case "set:dir:repo":
+		session.WorkRoot = r.cfg.Runtime.WorkRoot
+		session.SetupAwaiting = ""
+	case "set:dir:desktop":
+		session.WorkRoot = filepath.Join(userHomeDir(), "Desktop")
+		session.SetupAwaiting = ""
+	case "set:dir:projects":
+		session.WorkRoot = filepath.Join(userHomeDir(), "Projects")
+		session.SetupAwaiting = ""
+	case "set:dir:custom":
+		session.SetupAwaiting = "custom_path"
+	case "set:launch":
+		if err := r.bot.AnswerCallback(ctx, callback.ID, "Launching"); err != nil {
+			return err
+		}
+		return r.launchSession(ctx, callback.Message.ChatID, threadID, session)
+	default:
+		return r.bot.AnswerCallback(ctx, callback.ID, "")
+	}
+
+	if err := r.store.SaveSession(session); err != nil {
+		return fmt.Errorf("save session: %w", err)
+	}
+	if err := r.editSetupCard(ctx, callback.Message.ChatID, session); err != nil {
+		return err
+	}
+	return r.bot.AnswerCallback(ctx, callback.ID, "")
+}
+
+func (r *Runtime) handleSetupTopicInput(ctx context.Context, chatID int64, threadID int, session state.Session, text string) error {
+	if session.SetupAwaiting != "custom_path" {
+		return r.bot.SendMessage(ctx, chatID, &threadID, "Finish setup with the buttons above before sending session messages.")
+	}
+
+	workDir, err := resolveWorkDir(text)
+	if err != nil {
+		return r.bot.SendMessage(ctx, chatID, &threadID, "Invalid path: "+err.Error())
+	}
+	session.WorkRoot = workDir
+	session.SetupAwaiting = ""
+	if err := r.store.SaveSession(session); err != nil {
+		return fmt.Errorf("save session: %w", err)
+	}
+	return r.editSetupCard(ctx, chatID, session)
 }
 
 func (r *Runtime) cleanupTargets(raw string) ([]int, []state.Session, error) {
@@ -376,7 +478,13 @@ func dedupeThreadIDs(threadIDs []int) []int {
 }
 
 func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, goal string) {
-	result, err := r.codex.Start(ctx, goal)
+	runner := r.runnerForProvider(session.Provider)
+	if runner == nil {
+		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: unknown provider "+session.Provider)
+		return
+	}
+
+	result, err := runner.Start(ctx, session.WorkRoot, goal)
 	if err != nil {
 		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: "+err.Error())
 		return
@@ -397,7 +505,171 @@ func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, s
 		}
 	}
 
+	_ = r.editSetupCard(ctx, chatID, session)
 	_ = r.maybeAutoReply(ctx, chatID, threadID, session, run, result.Message)
+}
+
+func (r *Runtime) launchSession(ctx context.Context, chatID int64, threadID int, session state.Session) error {
+	if strings.TrimSpace(session.Provider) == "" {
+		return r.bot.SendMessage(ctx, chatID, &threadID, "Launch blocked: choose a provider first.")
+	}
+	if strings.TrimSpace(session.WorkRoot) == "" {
+		return r.bot.SendMessage(ctx, chatID, &threadID, "Launch blocked: choose a directory first.")
+	}
+
+	runID := state.RunID(makeID("run"))
+	now := time.Now().UTC()
+	run := state.Run{
+		ID:        runID,
+		SessionID: session.ID,
+		Provider:  session.Provider,
+		Status:    state.RunStatusActive,
+		StartedAt: now,
+		UpdatedAt: now,
+	}
+	if err := r.store.SaveRun(run); err != nil {
+		return fmt.Errorf("save run: %w", err)
+	}
+
+	session.ActiveRunID = runID
+	session.Phase = state.SessionPhasePlanning
+	if err := r.store.SaveSession(session); err != nil {
+		return fmt.Errorf("save session: %w", err)
+	}
+	if err := r.bot.EditMessageCard(ctx, chatID, session.SetupMessageID, r.renderLaunchingCard(session), telegram.InlineKeyboardMarkup{}); err != nil {
+		return fmt.Errorf("edit launching card: %w", err)
+	}
+
+	go r.finishStart(ctx, chatID, threadID, session, run, session.LastGoal)
+	return nil
+}
+
+func (r *Runtime) editSetupCard(ctx context.Context, chatID int64, session state.Session) error {
+	if session.SetupMessageID == 0 {
+		return nil
+	}
+	text, markup := r.renderSetupCard(session)
+	return r.bot.EditMessageCard(ctx, chatID, session.SetupMessageID, text, markup)
+}
+
+func (r *Runtime) renderSetupCard(session state.Session) (string, telegram.InlineKeyboardMarkup) {
+	provider := "not selected"
+	if session.Provider != "" {
+		provider = session.Provider
+	}
+
+	directory := "not selected"
+	if session.WorkRoot != "" {
+		directory = session.WorkRoot
+	}
+
+	lines := []string{
+		fmt.Sprintf("Setup: %s", session.LastGoal),
+		fmt.Sprintf("Provider: %s", provider),
+		fmt.Sprintf("Directory: %s", directory),
+	}
+	if session.ActiveRunID != "" {
+		lines = append(lines, "Status: running in this topic.")
+	} else if session.SetupAwaiting == "custom_path" {
+		lines = append(lines, "Next step: send the custom path as your next message in this topic.")
+	} else if session.Provider == "" || session.WorkRoot == "" {
+		lines = append(lines, "Next step: choose a provider and directory, then launch.")
+	} else {
+		lines = append(lines, "Ready: press Launch to start the session.")
+	}
+
+	rows := [][]telegram.InlineKeyboardButton{}
+	providerRow := []telegram.InlineKeyboardButton{}
+	if strings.TrimSpace(r.cfg.Providers.CodexCommand) != "" {
+		providerRow = append(providerRow, telegram.InlineKeyboardButton{Text: providerLabel("codex", session.Provider), CallbackData: "set:prov:codex"})
+	}
+	if strings.TrimSpace(r.cfg.Providers.OpenCodeCommand) != "" {
+		providerRow = append(providerRow, telegram.InlineKeyboardButton{Text: providerLabel("opencode", session.Provider), CallbackData: "set:prov:opencode"})
+	}
+	if len(providerRow) > 0 {
+		rows = append(rows, providerRow)
+	}
+
+	rows = append(rows,
+		[]telegram.InlineKeyboardButton{
+			{Text: dirLabel("repo", session.WorkRoot, r.cfg.Runtime.WorkRoot), CallbackData: "set:dir:repo"},
+			{Text: dirLabel("desktop", session.WorkRoot, filepath.Join(userHomeDir(), "Desktop")), CallbackData: "set:dir:desktop"},
+		},
+		[]telegram.InlineKeyboardButton{
+			{Text: dirLabel("projects", session.WorkRoot, filepath.Join(userHomeDir(), "Projects")), CallbackData: "set:dir:projects"},
+			{Text: "Custom Path", CallbackData: "set:dir:custom"},
+		},
+	)
+
+	if session.ActiveRunID == "" && session.Provider != "" && session.WorkRoot != "" {
+		rows = append(rows, []telegram.InlineKeyboardButton{{Text: "Launch", CallbackData: "set:launch"}})
+	}
+
+	return strings.Join(lines, "\n"), telegram.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+func (r *Runtime) renderLaunchingCard(session state.Session) string {
+	return strings.Join([]string{
+		fmt.Sprintf("Setup: %s", session.LastGoal),
+		fmt.Sprintf("Provider: %s", session.Provider),
+		fmt.Sprintf("Directory: %s", session.WorkRoot),
+		"Launching...",
+	}, "\n")
+}
+
+func (r *Runtime) runnerForProvider(provider string) sessionRunner {
+	switch provider {
+	case "codex":
+		return r.codex
+	case "opencode":
+		return r.opencode
+	default:
+		return nil
+	}
+}
+
+func providerLabel(name, selected string) string {
+	if name == selected {
+		return name + " selected"
+	}
+	return name
+}
+
+func dirLabel(label, selected, target string) string {
+	if selected == target {
+		return label + " selected"
+	}
+	return label
+}
+
+func resolveWorkDir(raw string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if strings.HasPrefix(path, "~") {
+		path = filepath.Join(userHomeDir(), strings.TrimPrefix(path, "~"))
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("stat path: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("not a directory")
+	}
+	return filepath.Clean(abs), nil
+}
+
+func userHomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
 }
 
 func (r *Runtime) sessionCount() int {
@@ -418,6 +690,11 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 		return nil
 	}
 
+	runner := r.runnerForProvider(session.Provider)
+	if runner == nil {
+		return nil
+	}
+
 	rawType := codexprovider.ClassifyText(message)
 	if rawType == "" {
 		return nil
@@ -426,7 +703,7 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 	event, err := events.Normalize(events.Observation{
 		SessionID:    string(session.ID),
 		RunID:        string(run.ID),
-		Provider:     events.ProviderCodex,
+		Provider:     eventProviderForSession(session.Provider),
 		Source:       events.SourceTranscript,
 		RawType:      rawType,
 		RawTimestamp: time.Now().UTC(),
@@ -466,7 +743,7 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 		return fmt.Errorf("send agent reply note: %w", err)
 	}
 
-	result, err := r.codex.Resume(ctx, run.ProviderSessionID, decision.Message)
+	result, err := runner.Resume(ctx, session.WorkRoot, run.ProviderSessionID, decision.Message)
 	if err != nil {
 		return fmt.Errorf("resume codex after support reply: %w", err)
 	}
@@ -476,7 +753,7 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 	if err := r.store.SaveRun(state.Run{
 		ID:                newRunID,
 		SessionID:         session.ID,
-		Provider:          "codex",
+		Provider:          session.Provider,
 		ProviderSessionID: result.ProviderSessionID,
 		Status:            state.RunStatusExited,
 		StartedAt:         now,
@@ -495,4 +772,13 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 		return nil
 	}
 	return r.bot.SendMessage(ctx, chatID, &threadID, result.Message)
+}
+
+func eventProviderForSession(provider string) events.Provider {
+	switch provider {
+	case "codex", "opencode":
+		return events.ProviderCodex
+	default:
+		return events.ProviderCodex
+	}
 }

@@ -22,7 +22,7 @@ func TestAppRunPollsTelegramAndHandlesStatusCommand(t *testing.T) {
 					UserID:   1001,
 					ChatID:   -1001234567890,
 					ThreadID: 1,
-					Text:     "status",
+					Text:     "/status",
 				},
 			},
 		},
@@ -130,7 +130,7 @@ func TestAppRunPersistsTelegramOffsetAcrossRestart(t *testing.T) {
 				UserID:   1001,
 				ChatID:   -1001234567890,
 				ThreadID: 1,
-				Text:     "status",
+				Text:     "/status",
 			},
 		}},
 	})
@@ -145,7 +145,7 @@ func TestAppRunPersistsTelegramOffsetAcrossRestart(t *testing.T) {
 				UserID:   1001,
 				ChatID:   -1001234567890,
 				ThreadID: 1,
-				Text:     "status",
+				Text:     "/status",
 			},
 		}},
 	})

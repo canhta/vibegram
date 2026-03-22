@@ -12,9 +12,10 @@ import (
 
 func TestSessionRunnerStartParsesThreadIDAndMessage(t *testing.T) {
 	cmd := writeFakeCodexScript(t)
-	r := NewSessionRunner(runner.New(), cmd, t.TempDir())
+	workDir := t.TempDir()
+	r := NewSessionRunner(runner.New(), cmd)
 
-	result, err := r.Start(context.Background(), "start prompt")
+	result, err := r.Start(context.Background(), workDir, "start prompt")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -32,9 +33,10 @@ func TestSessionRunnerStartParsesThreadIDAndMessage(t *testing.T) {
 
 func TestSessionRunnerResumeReturnsLastMessage(t *testing.T) {
 	cmd := writeFakeCodexScript(t)
-	r := NewSessionRunner(runner.New(), cmd, t.TempDir())
+	workDir := t.TempDir()
+	r := NewSessionRunner(runner.New(), cmd)
 
-	result, err := r.Resume(context.Background(), "thread-123", "follow-up prompt")
+	result, err := r.Resume(context.Background(), workDir, "thread-123", "follow-up prompt")
 	if err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}

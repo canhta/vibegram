@@ -21,7 +21,10 @@ import (
 type fakeBotClient struct {
 	createdTopicNames []string
 	sent              []sentMessage
+	edited            []editedMessage
+	answeredCallbacks []answeredCallback
 	nextThreadID      int
+	nextMessageID     int
 	updates           []telegram.Update
 	createTopicErr    error
 	deletedTopics     []int
@@ -29,9 +32,23 @@ type fakeBotClient struct {
 }
 
 type sentMessage struct {
-	chatID   int64
-	threadID *int
-	text     string
+	messageID int
+	chatID    int64
+	threadID  *int
+	text      string
+	markup    *telegram.InlineKeyboardMarkup
+}
+
+type editedMessage struct {
+	chatID    int64
+	messageID int
+	text      string
+	markup    *telegram.InlineKeyboardMarkup
+}
+
+type answeredCallback struct {
+	id   string
+	text string
 }
 
 func (f *fakeBotClient) CreateForumTopic(ctx context.Context, chatID int64, name string) (int, error) {
@@ -46,7 +63,37 @@ func (f *fakeBotClient) CreateForumTopic(ctx context.Context, chatID int64, name
 }
 
 func (f *fakeBotClient) SendMessage(ctx context.Context, chatID int64, threadID *int, text string) error {
-	f.sent = append(f.sent, sentMessage{chatID: chatID, threadID: threadID, text: text})
+	f.nextMessageID++
+	f.sent = append(f.sent, sentMessage{messageID: f.nextMessageID, chatID: chatID, threadID: threadID, text: text})
+	return nil
+}
+
+func (f *fakeBotClient) SendMessageCard(ctx context.Context, chatID int64, threadID *int, text string, markup telegram.InlineKeyboardMarkup) (int, error) {
+	f.nextMessageID++
+	card := markup
+	f.sent = append(f.sent, sentMessage{
+		messageID: f.nextMessageID,
+		chatID:    chatID,
+		threadID:  threadID,
+		text:      text,
+		markup:    &card,
+	})
+	return f.nextMessageID, nil
+}
+
+func (f *fakeBotClient) EditMessageCard(ctx context.Context, chatID int64, messageID int, text string, markup telegram.InlineKeyboardMarkup) error {
+	card := markup
+	f.edited = append(f.edited, editedMessage{
+		chatID:    chatID,
+		messageID: messageID,
+		text:      text,
+		markup:    &card,
+	})
+	return nil
+}
+
+func (f *fakeBotClient) AnswerCallback(ctx context.Context, callbackID, text string) error {
+	f.answeredCallbacks = append(f.answeredCallbacks, answeredCallback{id: callbackID, text: text})
 	return nil
 }
 
@@ -72,8 +119,10 @@ func (f *fakeBotClient) GetUpdates(ctx context.Context, offset int64) ([]telegra
 
 type fakeCodexSessionRunner struct {
 	startPrompt     string
+	startWorkDir    string
 	resumeSessionID string
 	resumePrompt    string
+	resumeWorkDir   string
 	startResult     codexprovider.SessionResult
 	resumeResult    codexprovider.SessionResult
 	startRelease    chan struct{}
@@ -87,7 +136,13 @@ type fakePolicyEngine struct {
 	called    bool
 }
 
-func (f *fakeCodexSessionRunner) Start(ctx context.Context, prompt string) (codexprovider.SessionResult, error) {
+type fakeSupportResponder struct {
+	lastText string
+	reply    string
+}
+
+func (f *fakeCodexSessionRunner) Start(ctx context.Context, workDir, prompt string) (codexprovider.SessionResult, error) {
+	f.startWorkDir = workDir
 	f.startPrompt = prompt
 	if f.startCalled != nil {
 		select {
@@ -101,7 +156,8 @@ func (f *fakeCodexSessionRunner) Start(ctx context.Context, prompt string) (code
 	return f.startResult, nil
 }
 
-func (f *fakeCodexSessionRunner) Resume(ctx context.Context, providerSessionID, prompt string) (codexprovider.SessionResult, error) {
+func (f *fakeCodexSessionRunner) Resume(ctx context.Context, workDir, providerSessionID, prompt string) (codexprovider.SessionResult, error) {
+	f.resumeWorkDir = workDir
 	f.resumeSessionID = providerSessionID
 	f.resumePrompt = prompt
 	return f.resumeResult, nil
@@ -114,7 +170,200 @@ func (f *fakePolicyEngine) Evaluate(ctx context.Context, snap state.Snapshot, ev
 	return f.decision, nil
 }
 
-func TestRuntimeHandleGeneralStartCreatesSessionAndSendsMessages(t *testing.T) {
+func (f *fakeSupportResponder) Reply(ctx context.Context, text string) (string, error) {
+	f.lastText = text
+	return f.reply, nil
+}
+
+func TestRuntimeHandleGeneralPlainTextRoutesToSupportAgent(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{}
+	support := &fakeSupportResponder{reply: "Use /start build health check to create a new session."}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		support,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 1,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "how do i run a new session?",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if support.lastText != "how do i run a new session?" {
+		t.Fatalf("support.lastText = %q", support.lastText)
+	}
+	if len(bot.sent) != 1 || bot.sent[0].text != support.reply {
+		t.Fatalf("bot.sent = %+v, want support reply", bot.sent)
+	}
+	if len(bot.createdTopicNames) != 0 {
+		t.Fatalf("createdTopicNames = %v, want none for plain text", bot.createdTopicNames)
+	}
+	if codex.startPrompt != "" {
+		t.Fatalf("startPrompt = %q, want empty for plain text", codex.startPrompt)
+	}
+}
+
+func TestRuntimeHandleGeneralPlainTextStartDoesNotLaunchSession(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{}
+	support := &fakeSupportResponder{reply: "Use /start build health check if you want me to create a session topic."}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Runtime: config.RuntimeConfig{
+				WorkRoot: root,
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		support,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 2,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "start build health check",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.createdTopicNames) != 0 {
+		t.Fatalf("createdTopicNames = %v, want none for non-slash start", bot.createdTopicNames)
+	}
+	if codex.startPrompt != "" {
+		t.Fatalf("startPrompt = %q, want empty for non-slash start", codex.startPrompt)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "sessions"))
+	if err != nil {
+		t.Fatalf("ReadDir(sessions) error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("session file count = %d, want 0 for non-slash start", len(entries))
+	}
+}
+
+func TestRuntimeHandleGeneralSlashStartCreatesSetupCardWithoutLaunching(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{nextThreadID: 42}
+	codex := &fakeCodexSessionRunner{}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Providers: config.ProviderConfig{
+				CodexCommand:    "/usr/local/bin/codex",
+				OpenCodeCommand: "/opt/homebrew/bin/opencode",
+			},
+			Runtime: config.RuntimeConfig{
+				WorkRoot: root,
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 3,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/start build health check",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.createdTopicNames) != 1 || bot.createdTopicNames[0] != "build health check" {
+		t.Fatalf("createdTopicNames = %v, want [build health check]", bot.createdTopicNames)
+	}
+	if codex.startPrompt != "" {
+		t.Fatalf("startPrompt = %q, want empty before launch", codex.startPrompt)
+	}
+	if len(bot.sent) != 2 {
+		t.Fatalf("sent messages = %d, want 2", len(bot.sent))
+	}
+	if !strings.Contains(bot.sent[0].text, "Session created") {
+		t.Fatalf("general notice = %q, want session created", bot.sent[0].text)
+	}
+	if bot.sent[1].threadID == nil || *bot.sent[1].threadID != 42 {
+		t.Fatalf("setup threadID = %v, want 42", bot.sent[1].threadID)
+	}
+	if !strings.Contains(bot.sent[1].text, "Provider: not selected") {
+		t.Fatalf("setup text = %q", bot.sent[1].text)
+	}
+	if !strings.Contains(bot.sent[1].text, "Directory: not selected") {
+		t.Fatalf("setup text = %q", bot.sent[1].text)
+	}
+	if bot.sent[1].markup == nil {
+		t.Fatal("setup card markup = nil, want buttons")
+	}
+
+	entries, err := os.ReadDir(filepath.Join(root, "runs"))
+	if err != nil {
+		t.Fatalf("ReadDir(runs) error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("run file count = %d, want 0 before launch", len(entries))
+	}
+}
+
+func TestRuntimeHandleSetupCallbacksLaunchAfterProviderAndDirectorySelection(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)
 	if err := store.Init(); err != nil {
@@ -135,10 +384,182 @@ func TestRuntimeHandleGeneralStartCreatesSessionAndSendsMessages(t *testing.T) {
 				ForumChatID: -1001234567890,
 				AdminIDs:    []int64{1001},
 			},
+			Providers: config.ProviderConfig{
+				CodexCommand: "/usr/local/bin/codex",
+			},
+			Runtime: config.RuntimeConfig{
+				WorkRoot: root,
+			},
 		},
 		store,
 		bot,
 		codex,
+		nil,
+		nil,
+		nil,
+	)
+
+	if err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 4,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/start build health check",
+		},
+	}); err != nil {
+		t.Fatalf("HandleUpdate(start) error = %v", err)
+	}
+
+	setupMessageID := bot.sent[1].messageID
+	for _, data := range []string{"set:prov:codex", "set:dir:repo", "set:launch"} {
+		if err := rt.HandleUpdate(context.Background(), telegram.Update{
+			UpdateID: 5,
+			CallbackQuery: &telegram.CallbackQuery{
+				ID:         "cb-" + data,
+				FromUserID: 1001,
+				Data:       data,
+				Message: telegram.UpdateMessage{
+					MessageID: setupMessageID,
+					UserID:    1001,
+					ChatID:    -1001234567890,
+					ThreadID:  42,
+					Text:      bot.sent[1].text,
+				},
+			},
+		}); err != nil {
+			t.Fatalf("HandleUpdate(callback %s) error = %v", data, err)
+		}
+	}
+
+	waitForRuntime(t, func() bool { return codex.startPrompt == "build health check" }, "launch after setup")
+	if len(bot.edited) < 3 {
+		t.Fatalf("edited messages = %d, want setup card updates", len(bot.edited))
+	}
+	sawLaunching := false
+	for _, edit := range bot.edited {
+		if edit.messageID != setupMessageID {
+			t.Fatalf("edited messageID = %d, want %d", edit.messageID, setupMessageID)
+		}
+		if strings.Contains(edit.text, "Launching") {
+			sawLaunching = true
+		}
+	}
+	if !sawLaunching {
+		t.Fatalf("edited messages = %+v, want a launching state edit", bot.edited)
+	}
+	lastEdit := bot.edited[len(bot.edited)-1]
+	if !strings.Contains(lastEdit.text, "Status: running") {
+		t.Fatalf("last edit text = %q, want running state", lastEdit.text)
+	}
+	if len(bot.answeredCallbacks) != 3 {
+		t.Fatalf("answeredCallbacks = %d, want 3", len(bot.answeredCallbacks))
+	}
+}
+
+func TestRuntimeHandleSetupCallbacksCanLaunchOpenCode(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{nextThreadID: 42}
+	codex := &fakeCodexSessionRunner{}
+	opencode := &fakeCodexSessionRunner{
+		startResult: codexprovider.SessionResult{
+			ProviderSessionID: "ses_open_123",
+			Message:           "opencode final message",
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Providers: config.ProviderConfig{
+				CodexCommand:    "/usr/local/bin/codex",
+				OpenCodeCommand: "/opt/homebrew/bin/opencode",
+			},
+			Runtime: config.RuntimeConfig{
+				WorkRoot: root,
+			},
+		},
+		store,
+		bot,
+		codex,
+		opencode,
+		nil,
+		nil,
+	)
+
+	if err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 6,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/start ship marketing page",
+		},
+	}); err != nil {
+		t.Fatalf("HandleUpdate(start) error = %v", err)
+	}
+
+	setupMessageID := bot.sent[1].messageID
+	for _, data := range []string{"set:prov:opencode", "set:dir:repo", "set:launch"} {
+		if err := rt.HandleUpdate(context.Background(), telegram.Update{
+			UpdateID: 7,
+			CallbackQuery: &telegram.CallbackQuery{
+				ID:         "cb-" + data,
+				FromUserID: 1001,
+				Data:       data,
+				Message: telegram.UpdateMessage{
+					MessageID: setupMessageID,
+					ChatID:    -1001234567890,
+					ThreadID:  42,
+				},
+			},
+		}); err != nil {
+			t.Fatalf("HandleUpdate(%s) error = %v", data, err)
+		}
+	}
+
+	waitForRuntime(t, func() bool { return opencode.startPrompt == "ship marketing page" }, "opencode launch")
+	if codex.startPrompt != "" {
+		t.Fatalf("codex.startPrompt = %q, want empty when opencode is selected", codex.startPrompt)
+	}
+	if opencode.startWorkDir != root {
+		t.Fatalf("opencode.startWorkDir = %q, want %q", opencode.startWorkDir, root)
+	}
+	waitForRuntime(t, func() bool {
+		return len(bot.sent) >= 3 && bot.sent[len(bot.sent)-1].text == "opencode final message"
+	}, "opencode final message")
+}
+
+func TestRuntimeHandleGeneralSlashStartPersistsSetupSessionState(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{nextThreadID: 42}
+	codex := &fakeCodexSessionRunner{}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
 		nil,
 	)
 
@@ -148,38 +569,45 @@ func TestRuntimeHandleGeneralStartCreatesSessionAndSendsMessages(t *testing.T) {
 			UserID:   1001,
 			ChatID:   -1001234567890,
 			ThreadID: 1,
-			Text:     "start build health check",
+			Text:     "/start build health check",
 		},
 	})
 	if err != nil {
 		t.Fatalf("HandleUpdate() error = %v", err)
 	}
 
-	waitForRuntime(t, func() bool { return codex.startPrompt == "build health check" }, "codex start prompt")
 	if len(bot.createdTopicNames) != 1 || bot.createdTopicNames[0] != "build health check" {
 		t.Fatalf("createdTopicNames = %v, want [build health check]", bot.createdTopicNames)
 	}
-	waitForRuntime(t, func() bool { return len(bot.sent) >= 3 }, "session start messages")
-	if !strings.Contains(bot.sent[0].text, "Session started") {
-		t.Fatalf("first message = %q, want session-start notice", bot.sent[0].text)
+	if codex.startPrompt != "" {
+		t.Fatalf("startPrompt = %q, want empty before launch", codex.startPrompt)
 	}
-	if bot.sent[1].text != "Session starting: build health check" {
-		t.Fatalf("second message = %q, want %q", bot.sent[1].text, "Session starting: build health check")
+	if len(bot.sent) != 2 {
+		t.Fatalf("sent messages = %d, want 2", len(bot.sent))
 	}
-	if bot.sent[len(bot.sent)-1].text != "assistant final message" {
-		t.Fatalf("last message = %q, want %q", bot.sent[len(bot.sent)-1].text, "assistant final message")
+	if !strings.Contains(bot.sent[0].text, "Session created") {
+		t.Fatalf("first message = %q, want session-created notice", bot.sent[0].text)
+	}
+	if bot.sent[1].threadID == nil || *bot.sent[1].threadID != 42 {
+		t.Fatalf("setup threadID = %v, want 42", bot.sent[1].threadID)
 	}
 
-	entries, err := os.ReadDir(filepath.Join(root, "sessions"))
+	sessions, err := store.ListSessions()
 	if err != nil {
-		t.Fatalf("ReadDir(sessions) error = %v", err)
+		t.Fatalf("ListSessions() error = %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("session file count = %d, want 1", len(entries))
+	if len(sessions) != 1 {
+		t.Fatalf("session count = %d, want 1", len(sessions))
+	}
+	if sessions[0].ActiveRunID != "" {
+		t.Fatalf("ActiveRunID = %q, want empty before launch", sessions[0].ActiveRunID)
+	}
+	if sessions[0].SetupMessageID != bot.sent[1].messageID {
+		t.Fatalf("SetupMessageID = %d, want %d", sessions[0].SetupMessageID, bot.sent[1].messageID)
 	}
 }
 
-func TestRuntimeHandleGeneralStartPersistsStateBeforeCodexFinishes(t *testing.T) {
+func TestRuntimeHandleSetupLaunchPersistsRunBeforeProviderFinishes(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)
 	if err := store.Init(); err != nil {
@@ -202,10 +630,15 @@ func TestRuntimeHandleGeneralStartPersistsStateBeforeCodexFinishes(t *testing.T)
 				ForumChatID: -1001234567890,
 				AdminIDs:    []int64{1001},
 			},
+			Runtime: config.RuntimeConfig{
+				WorkRoot: root,
+			},
 		},
 		store,
 		bot,
 		codex,
+		nil,
+		nil,
 		nil,
 	)
 
@@ -217,7 +650,52 @@ func TestRuntimeHandleGeneralStartPersistsStateBeforeCodexFinishes(t *testing.T)
 				UserID:   1001,
 				ChatID:   -1001234567890,
 				ThreadID: 1,
-				Text:     "start build health check",
+				Text:     "/start build health check",
+			},
+		})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("HandleUpdate(start) error = %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("HandleUpdate(start) did not return promptly")
+	}
+
+	setupMessageID := bot.sent[1].messageID
+	for _, data := range []string{"set:prov:codex", "set:dir:repo"} {
+		if err := rt.HandleUpdate(context.Background(), telegram.Update{
+			UpdateID: 21,
+			CallbackQuery: &telegram.CallbackQuery{
+				ID:         "cb-" + data,
+				FromUserID: 1001,
+				Data:       data,
+				Message: telegram.UpdateMessage{
+					MessageID: setupMessageID,
+					ChatID:    -1001234567890,
+					ThreadID:  42,
+				},
+			},
+		}); err != nil {
+			t.Fatalf("HandleUpdate(%s) error = %v", data, err)
+		}
+	}
+
+	done = make(chan error, 1)
+	go func() {
+		done <- rt.HandleUpdate(context.Background(), telegram.Update{
+			UpdateID: 22,
+			CallbackQuery: &telegram.CallbackQuery{
+				ID:         "cb-set:launch",
+				FromUserID: 1001,
+				Data:       "set:launch",
+				Message: telegram.UpdateMessage{
+					MessageID: setupMessageID,
+					ChatID:    -1001234567890,
+					ThreadID:  42,
+				},
 			},
 		})
 	}()
@@ -228,35 +706,21 @@ func TestRuntimeHandleGeneralStartPersistsStateBeforeCodexFinishes(t *testing.T)
 		t.Fatal("start runner was not called")
 	}
 
-	deadline := time.Now().Add(1 * time.Second)
-	for {
-		entries, err := os.ReadDir(filepath.Join(root, "sessions"))
-		if err != nil {
-			t.Fatalf("ReadDir(sessions) error = %v", err)
-		}
-		if len(entries) == 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("session state was not persisted before codex finished")
-		}
-		time.Sleep(10 * time.Millisecond)
+	runs, err := os.ReadDir(filepath.Join(root, "runs"))
+	if err != nil {
+		t.Fatalf("ReadDir(runs) error = %v", err)
 	}
-
-	if len(bot.sent) < 2 {
-		t.Fatalf("sent messages = %d, want at least 2 before codex finishes", len(bot.sent))
-	}
-	if bot.sent[1].threadID == nil || *bot.sent[1].threadID != 42 {
-		t.Fatalf("threadID = %v, want 42", bot.sent[1].threadID)
+	if len(runs) != 1 {
+		t.Fatalf("run file count = %d, want 1 before provider finishes", len(runs))
 	}
 
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("HandleUpdate() error = %v", err)
+			t.Fatalf("HandleUpdate(launch) error = %v", err)
 		}
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("HandleUpdate did not return while codex was still starting")
+		t.Fatal("HandleUpdate(launch) did not return while provider was still starting")
 	}
 
 	close(codex.startRelease)
@@ -273,6 +737,7 @@ func TestRuntimeHandleSessionTopicMessageResumesProviderSession(t *testing.T) {
 		ID:             "ses_1",
 		ActiveRunID:    "run_1",
 		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
 		GeneralTopicID: 1,
 		SessionTopicID: 42,
 		Status:         state.SessionStatusRunning,
@@ -311,6 +776,8 @@ func TestRuntimeHandleSessionTopicMessageResumesProviderSession(t *testing.T) {
 		bot,
 		codex,
 		nil,
+		nil,
+		nil,
 	)
 	rt.sessionsByThread[42] = "ses_1"
 
@@ -333,6 +800,9 @@ func TestRuntimeHandleSessionTopicMessageResumesProviderSession(t *testing.T) {
 	if codex.resumePrompt != "continue" {
 		t.Fatalf("resumePrompt = %q, want %q", codex.resumePrompt, "continue")
 	}
+	if codex.resumeWorkDir != "/tmp/project" {
+		t.Fatalf("resumeWorkDir = %q, want %q", codex.resumeWorkDir, "/tmp/project")
+	}
 	if len(bot.sent) != 1 {
 		t.Fatalf("sent messages = %d, want 1", len(bot.sent))
 	}
@@ -344,7 +814,7 @@ func TestRuntimeHandleSessionTopicMessageResumesProviderSession(t *testing.T) {
 	}
 }
 
-func TestRuntimeStartSessionAutoRepliesToSafeQuestion(t *testing.T) {
+func TestRuntimeLaunchAutoRepliesToSafeQuestion(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStore(root)
 	if err := store.Init(); err != nil {
@@ -375,11 +845,16 @@ func TestRuntimeStartSessionAutoRepliesToSafeQuestion(t *testing.T) {
 				ForumChatID: -1001234567890,
 				AdminIDs:    []int64{1001},
 			},
+			Runtime: config.RuntimeConfig{
+				WorkRoot: root,
+			},
 		},
 		store,
 		bot,
 		codex,
+		nil,
 		engine,
+		nil,
 	)
 
 	err := rt.HandleUpdate(context.Background(), telegram.Update{
@@ -388,11 +863,30 @@ func TestRuntimeStartSessionAutoRepliesToSafeQuestion(t *testing.T) {
 			UserID:   1001,
 			ChatID:   -1001234567890,
 			ThreadID: 1,
-			Text:     "start choose test framework",
+			Text:     "/start choose test framework",
 		},
 	})
 	if err != nil {
-		t.Fatalf("HandleUpdate() error = %v", err)
+		t.Fatalf("HandleUpdate(start) error = %v", err)
+	}
+
+	setupMessageID := bot.sent[1].messageID
+	for _, data := range []string{"set:prov:codex", "set:dir:repo", "set:launch"} {
+		if err := rt.HandleUpdate(context.Background(), telegram.Update{
+			UpdateID: 2,
+			CallbackQuery: &telegram.CallbackQuery{
+				ID:         "cb-" + data,
+				FromUserID: 1001,
+				Data:       data,
+				Message: telegram.UpdateMessage{
+					MessageID: setupMessageID,
+					ChatID:    -1001234567890,
+					ThreadID:  42,
+				},
+			},
+		}); err != nil {
+			t.Fatalf("HandleUpdate(%s) error = %v", data, err)
+		}
 	}
 
 	waitForRuntime(t, func() bool { return engine.called }, "support-role policy call")
@@ -400,13 +894,19 @@ func TestRuntimeStartSessionAutoRepliesToSafeQuestion(t *testing.T) {
 		t.Fatalf("EventType = %q, want %q", engine.lastEvent.EventType, events.EventTypeQuestion)
 	}
 	waitForRuntime(t, func() bool { return codex.resumePrompt == "Use Go's standard library testing package." }, "support-role follow-up resume")
-	waitForRuntime(t, func() bool { return len(bot.sent) >= 5 }, "support-role message fanout")
+	waitForRuntime(t, func() bool { return len(bot.sent) >= 4 }, "support-role message fanout")
+	if codex.resumeWorkDir != root {
+		t.Fatalf("resumeWorkDir = %q, want %q", codex.resumeWorkDir, root)
+	}
 	if bot.sent[2].text != "Which test framework should I use?" {
 		t.Fatalf("question message = %q", bot.sent[2].text)
 	}
 	if bot.sent[3].text != "Agent reply: Use Go's standard library testing package." {
 		t.Fatalf("agent reply note = %q", bot.sent[3].text)
 	}
+	waitForRuntime(t, func() bool {
+		return len(bot.sent) >= 5 && bot.sent[4].text == "I'll use the Go standard library testing package."
+	}, "support-role follow-up message")
 	if bot.sent[4].text != "I'll use the Go standard library testing package." {
 		t.Fatalf("follow-up message = %q", bot.sent[4].text)
 	}
@@ -432,6 +932,8 @@ func TestRuntimeHandleGeneralStartReportsCreateTopicFailureWithoutCrashing(t *te
 		bot,
 		codex,
 		nil,
+		nil,
+		nil,
 	)
 
 	err := rt.HandleUpdate(context.Background(), telegram.Update{
@@ -440,7 +942,7 @@ func TestRuntimeHandleGeneralStartReportsCreateTopicFailureWithoutCrashing(t *te
 			UserID:   1001,
 			ChatID:   -1001234567890,
 			ThreadID: 1,
-			Text:     "start build health check",
+			Text:     "/start build health check",
 		},
 	})
 	if err != nil {
@@ -474,6 +976,8 @@ func TestRuntimeHandleGeneralCleanupDeletesRequestedTopics(t *testing.T) {
 		bot,
 		codex,
 		nil,
+		nil,
+		nil,
 	)
 
 	err := rt.HandleUpdate(context.Background(), telegram.Update{
@@ -482,7 +986,7 @@ func TestRuntimeHandleGeneralCleanupDeletesRequestedTopics(t *testing.T) {
 			UserID:   1001,
 			ChatID:   -1001234567890,
 			ThreadID: 1,
-			Text:     "cleanup 12,14",
+			Text:     "/cleanup 12,14",
 		},
 	})
 	if err != nil {
@@ -548,6 +1052,8 @@ func TestRuntimeHandleGeneralCleanupAllDeletesPersistedSessionTopics(t *testing.
 		bot,
 		codex,
 		nil,
+		nil,
+		nil,
 	)
 
 	err := rt.HandleUpdate(context.Background(), telegram.Update{
@@ -585,12 +1091,7 @@ func TestRuntimeHandleGeneralSlashStartSupportsBotMention(t *testing.T) {
 	}
 
 	bot := &fakeBotClient{nextThreadID: 42}
-	codex := &fakeCodexSessionRunner{
-		startResult: codexprovider.SessionResult{
-			ProviderSessionID: "thread-123",
-			Message:           "assistant final message",
-		},
-	}
+	codex := &fakeCodexSessionRunner{}
 
 	rt := NewRuntime(
 		config.Config{
@@ -602,6 +1103,8 @@ func TestRuntimeHandleGeneralSlashStartSupportsBotMention(t *testing.T) {
 		store,
 		bot,
 		codex,
+		nil,
+		nil,
 		nil,
 	)
 
@@ -618,60 +1121,11 @@ func TestRuntimeHandleGeneralSlashStartSupportsBotMention(t *testing.T) {
 		t.Fatalf("HandleUpdate() error = %v", err)
 	}
 
-	waitForRuntime(t, func() bool { return codex.startPrompt == "build health check" }, "slash start prompt")
-}
-
-func TestRuntimeHandleGeneralCleanUpAllAliasDeletesPersistedSessionTopics(t *testing.T) {
-	store := state.NewStore(t.TempDir())
-	if err := store.Init(); err != nil {
-		t.Fatalf("Init() error = %v", err)
+	if codex.startPrompt != "" {
+		t.Fatalf("startPrompt = %q, want empty before launch", codex.startPrompt)
 	}
-
-	session := state.Session{
-		ID:             "ses_12",
-		ActiveRunID:    "run_12",
-		Provider:       "codex",
-		GeneralTopicID: 1,
-		SessionTopicID: 12,
-		Status:         state.SessionStatusRunning,
-		Phase:          state.SessionPhasePlanning,
-	}
-	run := state.Run{ID: "run_12", SessionID: "ses_12", Provider: "codex", Status: state.RunStatusExited}
-	if err := store.SaveSession(session); err != nil {
-		t.Fatalf("SaveSession() error = %v", err)
-	}
-	if err := store.SaveRun(run); err != nil {
-		t.Fatalf("SaveRun() error = %v", err)
-	}
-
-	bot := &fakeBotClient{}
-	rt := NewRuntime(
-		config.Config{
-			Telegram: config.TelegramConfig{
-				ForumChatID: -1001234567890,
-				AdminIDs:    []int64{1001},
-			},
-		},
-		store,
-		bot,
-		&fakeCodexSessionRunner{},
-		nil,
-	)
-
-	err := rt.HandleUpdate(context.Background(), telegram.Update{
-		UpdateID: 33,
-		Message: telegram.UpdateMessage{
-			UserID:   1001,
-			ChatID:   -1001234567890,
-			ThreadID: 1,
-			Text:     "clean up all",
-		},
-	})
-	if err != nil {
-		t.Fatalf("HandleUpdate() error = %v", err)
-	}
-	if len(bot.deletedTopics) != 1 || bot.deletedTopics[0] != 12 {
-		t.Fatalf("deletedTopics = %v, want [12]", bot.deletedTopics)
+	if len(bot.createdTopicNames) != 1 || bot.createdTopicNames[0] != "build health check" {
+		t.Fatalf("createdTopicNames = %v, want [build health check]", bot.createdTopicNames)
 	}
 }
 
@@ -729,6 +1183,8 @@ func TestRuntimeHandleGeneralCleanupAllIgnoresInvalidTopicIDsAndRemovesState(t *
 		bot,
 		&fakeCodexSessionRunner{},
 		nil,
+		nil,
+		nil,
 	)
 
 	err := rt.HandleUpdate(context.Background(), telegram.Update{
@@ -737,7 +1193,7 @@ func TestRuntimeHandleGeneralCleanupAllIgnoresInvalidTopicIDsAndRemovesState(t *
 			UserID:   1001,
 			ChatID:   -1001234567890,
 			ThreadID: 1,
-			Text:     "cleanup all",
+			Text:     "/cleanup all",
 		},
 	})
 	if err != nil {
@@ -807,6 +1263,8 @@ func TestRuntimeHandleGeneralCleanupAllDedupesTopicIDs(t *testing.T) {
 		store,
 		bot,
 		&fakeCodexSessionRunner{},
+		nil,
+		nil,
 		nil,
 	)
 

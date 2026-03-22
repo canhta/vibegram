@@ -17,8 +17,9 @@ type Client struct {
 }
 
 type Update struct {
-	UpdateID int64         `json:"update_id"`
-	Message  UpdateMessage `json:"message"`
+	UpdateID      int64          `json:"update_id"`
+	Message       UpdateMessage  `json:"message"`
+	CallbackQuery *CallbackQuery `json:"callback_query,omitempty"`
 }
 
 type UpdateMessage struct {
@@ -27,6 +28,22 @@ type UpdateMessage struct {
 	ChatID    int64
 	ThreadID  int
 	Text      string `json:"text"`
+}
+
+type CallbackQuery struct {
+	ID         string
+	FromUserID int64
+	Data       string
+	Message    UpdateMessage
+}
+
+type InlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data,omitempty"`
+}
+
+type InlineKeyboardMarkup struct {
+	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
 }
 
 func NewClient(token, baseURL string) *Client {
@@ -69,6 +86,21 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64) ([]Update, error)
 					ID int64 `json:"id"`
 				} `json:"chat"`
 			} `json:"message"`
+			CallbackQuery struct {
+				ID   string `json:"id"`
+				Data string `json:"data"`
+				From struct {
+					ID int64 `json:"id"`
+				} `json:"from"`
+				Message struct {
+					MessageID       int    `json:"message_id"`
+					MessageThreadID int    `json:"message_thread_id"`
+					Text            string `json:"text"`
+					Chat            struct {
+						ID int64 `json:"id"`
+					} `json:"chat"`
+				} `json:"message"`
+			} `json:"callback_query"`
 		} `json:"result"`
 	}
 
@@ -88,6 +120,19 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64) ([]Update, error)
 				Text:      item.Message.Text,
 			},
 		})
+		if item.CallbackQuery.ID != "" {
+			updates[len(updates)-1].CallbackQuery = &CallbackQuery{
+				ID:         item.CallbackQuery.ID,
+				FromUserID: item.CallbackQuery.From.ID,
+				Data:       item.CallbackQuery.Data,
+				Message: UpdateMessage{
+					MessageID: item.CallbackQuery.Message.MessageID,
+					ChatID:    item.CallbackQuery.Message.Chat.ID,
+					ThreadID:  item.CallbackQuery.Message.MessageThreadID,
+					Text:      item.CallbackQuery.Message.Text,
+				},
+			}
+		}
 	}
 
 	return updates, nil
@@ -107,6 +152,68 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, threadID *int, t
 		return err
 	}
 
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	return c.doJSON(req, &resp)
+}
+
+func (c *Client) SendMessageCard(ctx context.Context, chatID int64, threadID *int, text string, markup InlineKeyboardMarkup) (int, error) {
+	body := map[string]any{
+		"chat_id":      chatID,
+		"text":         text,
+		"reply_markup": markup,
+	}
+	if threadID != nil {
+		body["message_thread_id"] = *threadID
+	}
+
+	req, err := c.newJSONRequest(ctx, "/sendMessage", body)
+	if err != nil {
+		return 0, err
+	}
+
+	var resp struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			MessageID int `json:"message_id"`
+		} `json:"result"`
+	}
+	if err := c.doJSON(req, &resp); err != nil {
+		return 0, err
+	}
+	return resp.Result.MessageID, nil
+}
+
+func (c *Client) EditMessageCard(ctx context.Context, chatID int64, messageID int, text string, markup InlineKeyboardMarkup) error {
+	req, err := c.newJSONRequest(ctx, "/editMessageText", map[string]any{
+		"chat_id":      chatID,
+		"message_id":   messageID,
+		"text":         text,
+		"reply_markup": markup,
+	})
+	if err != nil {
+		return err
+	}
+
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	return c.doJSON(req, &resp)
+}
+
+func (c *Client) AnswerCallback(ctx context.Context, callbackID, text string) error {
+	body := map[string]any{
+		"callback_query_id": callbackID,
+	}
+	if strings.TrimSpace(text) != "" {
+		body["text"] = text
+	}
+
+	req, err := c.newJSONRequest(ctx, "/answerCallbackQuery", body)
+	if err != nil {
+		return err
+	}
 	var resp struct {
 		OK bool `json:"ok"`
 	}

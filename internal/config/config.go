@@ -30,8 +30,9 @@ type OpenAIConfig struct {
 }
 
 type ProviderConfig struct {
-	ClaudeCommand string
-	CodexCommand  string
+	ClaudeCommand   string
+	CodexCommand    string
+	OpenCodeCommand string
 }
 
 type RuntimeConfig struct {
@@ -88,8 +89,9 @@ func LoadFromEnv() (Config, error) {
 			BaseURL: envOrDefault("VIBEGRAM_OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		},
 		Providers: ProviderConfig{
-			ClaudeCommand: os.Getenv("VIBEGRAM_PROVIDER_CLAUDE_CMD"),
-			CodexCommand:  os.Getenv("VIBEGRAM_PROVIDER_CODEX_CMD"),
+			ClaudeCommand:   os.Getenv("VIBEGRAM_PROVIDER_CLAUDE_CMD"),
+			CodexCommand:    os.Getenv("VIBEGRAM_PROVIDER_CODEX_CMD"),
+			OpenCodeCommand: os.Getenv("VIBEGRAM_PROVIDER_OPENCODE_CMD"),
 		},
 		Runtime: RuntimeConfig{
 			WorkRoot: workRoot,

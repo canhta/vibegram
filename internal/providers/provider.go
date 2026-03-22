@@ -10,6 +10,12 @@ type RawObservation struct {
 	events.Observation
 }
 
+type SessionResult struct {
+	ProviderSessionID string
+	Message           string
+	RawOutput         string
+}
+
 func (r RawObservation) IdentityKey() string {
 	return fmt.Sprintf(
 		"%s:%s:%s:%s:%s:%s",
