@@ -154,6 +154,23 @@ What those do:
 - `vibegram service status` shows the current unit status
 - `vibegram service logs` shows recent journald logs
 
+## Release Builds
+
+GitHub Releases are built from tags like `v1.0.0`.
+
+The checked-in release workflow produces:
+
+- `darwin/amd64`
+- `darwin/arm64`
+- `linux/amd64`
+
+Each release asset is a `.tar.gz` bundle with:
+
+- `vibegram`
+- `README.md`
+- `LICENSE`
+- `packaging/vibegram.service`
+
 Current bootstrap environment variables:
 
 - `VIBEGRAM_TELEGRAM_BOT_TOKEN`

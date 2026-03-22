@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 6 ]]; then
+  echo "usage: build-release-archive <version> <goos> <goarch> <binary-path> <repo-root> <output-dir>" >&2
+  exit 1
+fi
+
+version="$1"
+goos="$2"
+goarch="$3"
+binary_path="$4"
+repo_root="$5"
+output_dir="$6"
+
+archive_stem="vibegram_${version#v}_${goos}_${goarch}"
+staging_dir="${output_dir}/${archive_stem}"
+archive_path="${output_dir}/${archive_stem}.tar.gz"
+
+rm -rf "$staging_dir"
+mkdir -p "$staging_dir"
+
+cp "$binary_path" "${staging_dir}/vibegram"
+cp "${repo_root}/README.md" "${staging_dir}/README.md"
+cp "${repo_root}/LICENSE" "${staging_dir}/LICENSE"
+cp "${repo_root}/packaging/vibegram.service" "${staging_dir}/vibegram.service"
+
+chmod 0755 "${staging_dir}/vibegram"
+
+tar -C "$output_dir" -czf "$archive_path" "$archive_stem"
+
+echo "$archive_path"

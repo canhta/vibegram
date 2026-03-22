@@ -1,0 +1,115 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag (for example v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - runner: macos-13
+            goos: darwin
+            goarch: amd64
+          - runner: macos-14
+            goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve release version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          if [[ "${version}" != v* ]]; then
+            echo "version must start with v, got ${version}" >&2
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "${GITHUB_ENV}"
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" go build -o dist/vibegram ./cmd/vibegram
+
+      - name: Package release archive
+        shell: bash
+        run: |
+          chmod +x scripts/build-release-archive
+          scripts/build-release-archive "${VERSION}" "${{ matrix.goos }}" "${{ matrix.goarch }}" dist/vibegram "${GITHUB_WORKSPACE}" dist
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  github-release:
+    name: github-release
+    runs-on: ubuntu-24.04
+    needs: build
+
+    steps:
+      - name: Resolve release version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          if [[ "${version}" != v* ]]; then
+            echo "version must start with v, got ${version}" >&2
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "${GITHUB_ENV}"
+
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          cd dist
+          sha256sum ./*.tar.gz > SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${VERSION}" dist/*.tar.gz dist/SHA256SUMS --title "${VERSION}" --generate-notes
