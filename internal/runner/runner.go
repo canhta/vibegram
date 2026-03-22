@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -70,8 +71,18 @@ func (r *Runner) run(ctx context.Context, req Request, onLine func(string)) (Res
 	}()
 
 	waitErr := cmd.Wait()
-	_ = ptmx.Close()
-	copyErr := <-copyErrCh
+	// After the process exits, wait briefly for the output goroutine to drain
+	// any remaining data from the pty kernel buffer before closing the master.
+	// If it doesn't finish promptly (e.g. orphaned child processes still hold
+	// the pty slave open), close the master to unblock it.
+	var copyErr error
+	select {
+	case copyErr = <-copyErrCh:
+		_ = ptmx.Close()
+	case <-time.After(100 * time.Millisecond):
+		_ = ptmx.Close()
+		copyErr = <-copyErrCh
+	}
 
 	if copyErr != nil && !errors.Is(copyErr, io.EOF) && !errors.Is(copyErr, os.ErrClosed) && !errors.Is(copyErr, syscall.EIO) {
 		return Result{}, fmt.Errorf("capture pty output: %w", copyErr)
