@@ -37,14 +37,15 @@ type startChoice struct {
 }
 
 type generalDraft struct {
-	UserID       int64
-	Provider     string
-	Task         string
-	WorkRoot     string
-	BrowseRoot   string
-	CurrentPath  string
-	StartChoices []startChoice
-	Step         draftStep
+	UserID        int64
+	Provider      string
+	Task          string
+	WorkRoot      string
+	BrowseRoot    string
+	CurrentPath   string
+	BrowseChoices []browseEntry
+	StartChoices  []startChoice
+	Step          draftStep
 }
 
 func (r *Runtime) handleCallback(ctx context.Context, callback telegram.CallbackQuery) error {
@@ -125,6 +126,7 @@ func (r *Runtime) handleGeneralDraftCallback(ctx context.Context, chatID int64, 
 
 		draft.BrowseRoot = home
 		draft.CurrentPath = home
+		draft.BrowseChoices = nil
 		draft.WorkRoot = ""
 		draft.Step = draftStepBrowse
 		r.saveDraft(draft)
@@ -140,6 +142,7 @@ func (r *Runtime) handleGeneralDraftCallback(ctx context.Context, chatID int64, 
 		choice := draft.StartChoices[index]
 		draft.BrowseRoot = choice.RootPath
 		draft.CurrentPath = choice.Path
+		draft.BrowseChoices = nil
 		draft.WorkRoot = ""
 		draft.Step = draftStepBrowse
 		r.saveDraft(draft)
@@ -153,6 +156,7 @@ func (r *Runtime) handleGeneralDraftCallback(ctx context.Context, chatID int64, 
 		}
 
 		draft.WorkRoot = workRoot
+		draft.BrowseChoices = nil
 		draft.Step = draftStepTask
 		r.saveDraft(draft)
 
@@ -173,15 +177,17 @@ func (r *Runtime) handleGeneralDraftCallback(ctx context.Context, chatID int64, 
 			return r.bot.SendMessage(ctx, chatID, nil, "That folder choice expired. Try again.")
 		}
 
-		entries, err := browseChildren(draft.CurrentPath)
-		if err != nil {
-			return r.bot.SendMessage(ctx, chatID, nil, "I couldn't read that folder right now.")
-		}
-		if index < 0 || index >= len(entries) {
+		if index < 0 || index >= len(draft.BrowseChoices) {
 			return r.bot.SendMessage(ctx, chatID, nil, "That folder choice expired. Try again.")
 		}
 
-		draft.CurrentPath = entries[index].Path
+		targetPath, err := ensureDirectory(draft.BrowseChoices[index].Path)
+		if err != nil || !pathWithinRoot(draft.BrowseRoot, targetPath) {
+			return r.bot.SendMessage(ctx, chatID, nil, "That folder is not available anymore.")
+		}
+
+		draft.CurrentPath = targetPath
+		draft.BrowseChoices = nil
 		draft.WorkRoot = ""
 		r.saveDraft(draft)
 		return r.sendBrowsePrompt(ctx, chatID, draft)
@@ -241,6 +247,7 @@ func (r *Runtime) handleBrowseText(ctx context.Context, chatID int64, draft gene
 	}
 
 	draft.CurrentPath = targetPath
+	draft.BrowseChoices = nil
 	r.saveDraft(draft)
 	return r.sendBrowsePrompt(ctx, chatID, draft)
 }
@@ -364,29 +371,26 @@ func renderStartPrompt(draft generalDraft) (string, telegram.InlineKeyboardMarku
 	return text, telegram.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
-func renderBrowsePrompt(draft generalDraft) (string, telegram.InlineKeyboardMarkup) {
+func renderBrowsePrompt(draft generalDraft, entries []browseEntry) (string, telegram.InlineKeyboardMarkup) {
 	lines := []string{
 		fmt.Sprintf("You’re in %s.", draft.CurrentPath),
 		"Send a folder name, send .. to go up, or tap Choose Here.",
 	}
 
 	rows := [][]telegram.InlineKeyboardButton{}
-	entries, err := browseChildren(draft.CurrentPath)
-	if err == nil {
-		row := []telegram.InlineKeyboardButton{}
-		for i, entry := range entries {
-			row = append(row, telegram.InlineKeyboardButton{
-				Text:         entry.Name,
-				CallbackData: fmt.Sprintf("wiz:browse:open:%d", i),
-			})
-			if len(row) == 2 {
-				rows = append(rows, row)
-				row = nil
-			}
-		}
-		if len(row) > 0 {
+	row := []telegram.InlineKeyboardButton{}
+	for i, entry := range entries {
+		row = append(row, telegram.InlineKeyboardButton{
+			Text:         entry.Name,
+			CallbackData: fmt.Sprintf("wiz:browse:open:%d", i),
+		})
+		if len(row) == 2 {
 			rows = append(rows, row)
+			row = nil
 		}
+	}
+	if len(row) > 0 {
+		rows = append(rows, row)
 	}
 
 	actionRow := []telegram.InlineKeyboardButton{}
@@ -405,9 +409,17 @@ func renderTaskPrompt(draft generalDraft) string {
 }
 
 func (r *Runtime) sendBrowsePrompt(ctx context.Context, chatID int64, draft generalDraft) error {
-	text, markup := renderBrowsePrompt(draft)
-	_, err := r.bot.SendMessageCard(ctx, chatID, nil, text, markup)
-	return err
+	entries, err := browseChildren(draft.CurrentPath)
+	if err != nil {
+		entries = nil
+	}
+	text, markup := renderBrowsePrompt(draft, entries)
+	if _, err := r.bot.SendMessageCard(ctx, chatID, nil, text, markup); err != nil {
+		return err
+	}
+	draft.BrowseChoices = append([]browseEntry(nil), entries...)
+	r.saveDraft(draft)
+	return nil
 }
 
 func (r *Runtime) sendTaskPrompt(ctx context.Context, chatID int64, draft generalDraft) error {

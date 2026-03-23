@@ -291,6 +291,139 @@ func TestRuntimeGeneralWizardFallsBackToHomeWhenRecentHistoryIsMissing(t *testin
 	}
 }
 
+func TestRuntimeGeneralWizardBrowseButtonsStayBoundToRenderedFolders(t *testing.T) {
+	projectRoot := t.TempDir()
+	projectX := filepath.Join(projectRoot, "project-x")
+	projectBeta := filepath.Join(projectX, "beta")
+	projectGamma := filepath.Join(projectX, "gamma")
+	for _, path := range []string{projectX, projectBeta, projectGamma} {
+		if err := os.Mkdir(path, 0o755); err != nil {
+			t.Fatalf("Mkdir(%s) error = %v", path, err)
+		}
+	}
+
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := store.SaveSession(state.Session{
+		ID:             "ses_prior",
+		OwnerUserID:    1001,
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		WorkRoot:       projectX,
+		Status:         state.SessionStatusDone,
+		Phase:          state.SessionPhaseWaiting,
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Providers: config.ProviderConfig{
+				CodexCommand: "/usr/local/bin/codex",
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	if err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 30,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/new",
+		},
+	}); err != nil {
+		t.Fatalf("HandleUpdate(/new) error = %v", err)
+	}
+
+	if err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 31,
+		CallbackQuery: &telegram.CallbackQuery{
+			ID:         "cb-provider-codex",
+			FromUserID: 1001,
+			Data:       "wiz:provider:codex",
+			Message: telegram.UpdateMessage{
+				MessageID: bot.sent[0].messageID,
+				UserID:    1001,
+				ChatID:    -1001234567890,
+				ThreadID:  1,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("HandleUpdate(provider) error = %v", err)
+	}
+
+	if err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 32,
+		CallbackQuery: &telegram.CallbackQuery{
+			ID:         "cb-start-choice",
+			FromUserID: 1001,
+			Data:       "wiz:start:0",
+			Message: telegram.UpdateMessage{
+				MessageID: bot.sent[len(bot.sent)-1].messageID,
+				UserID:    1001,
+				ChatID:    -1001234567890,
+				ThreadID:  1,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("HandleUpdate(start choice) error = %v", err)
+	}
+
+	browsePrompt := bot.sent[len(bot.sent)-1]
+	if browsePrompt.markup == nil {
+		t.Fatal("browse prompt markup = nil, want folder buttons")
+	}
+	labels := inlineButtonLabels(*browsePrompt.markup)
+	if !containsLabel(labels, "beta") {
+		t.Fatalf("browse labels = %v, want beta", labels)
+	}
+	if !containsLabel(labels, "gamma") {
+		t.Fatalf("browse labels = %v, want gamma", labels)
+	}
+
+	// Simulate the directory contents changing after the prompt was rendered.
+	projectAardvark := filepath.Join(projectX, "aardvark")
+	if err := os.Mkdir(projectAardvark, 0o755); err != nil {
+		t.Fatalf("Mkdir(%s) error = %v", projectAardvark, err)
+	}
+
+	if err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 33,
+		CallbackQuery: &telegram.CallbackQuery{
+			ID:         "cb-browse-open-0",
+			FromUserID: 1001,
+			Data:       "wiz:browse:open:0",
+			Message: telegram.UpdateMessage{
+				MessageID: browsePrompt.messageID,
+				UserID:    1001,
+				ChatID:    -1001234567890,
+				ThreadID:  1,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("HandleUpdate(browse open) error = %v", err)
+	}
+
+	last := bot.sent[len(bot.sent)-1]
+	if !strings.Contains(last.text, projectBeta) {
+		t.Fatalf("browse destination = %q, want rendered first folder %q", last.text, projectBeta)
+	}
+}
+
 func TestRuntimeGeneralWizardTaskLaunchesDirectlyWithoutValidation(t *testing.T) {
 	projectRoot := t.TempDir()
 	projectX := filepath.Join(projectRoot, "project-x")
