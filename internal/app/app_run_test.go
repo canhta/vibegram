@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -218,6 +219,122 @@ func TestAppRunPersistsTelegramOffsetAcrossRestart(t *testing.T) {
 				ChatID:   -1001234567890,
 				ThreadID: 1,
 				Text:     "/status",
+			},
+		}},
+	})
+	if len(second) != 0 {
+		t.Fatalf("second sent len = %d, want 0 because offset should skip replay", len(second))
+	}
+}
+
+func TestAppRunPersistsTelegramOffsetWhenSessionResumeFails(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{
+		Telegram: config.TelegramConfig{
+			BotToken:    "telegram-token",
+			ForumChatID: -1001234567890,
+			AdminIDs:    []int64{1001},
+		},
+		Runtime: config.RuntimeConfig{
+			WorkRoot: root,
+			StateDir: root,
+		},
+	}
+
+	store := state.NewStore(root)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := store.SaveSession(state.Session{
+		ID:             "ses_1",
+		ActiveRunID:    "run_1",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(state.Run{
+		ID:                "run_1",
+		SessionID:         "ses_1",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	runOnce := func(bot *fakeBotClient) []sentMessage {
+		app := &App{
+			cfg:   cfg,
+			store: state.NewStore(root),
+			bot:   bot,
+			codex: &fakeCodexSessionRunner{
+				resumeErr: errors.New("codex exit 1: unexpected status 413 Payload Too Large"),
+			},
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- app.Run(ctx)
+		}()
+
+		deadline := time.Now().Add(2 * time.Second)
+		for len(bot.sent) == 0 && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("Run() error = %v, want nil", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Run() did not stop after cancellation")
+		}
+
+		return bot.sentSnapshot()
+	}
+
+	first := runOnce(&fakeBotClient{
+		updates: []telegram.Update{{
+			UpdateID: 7,
+			Message: telegram.UpdateMessage{
+				UserID:   1001,
+				ChatID:   -1001234567890,
+				ThreadID: 42,
+				Text:     "continue",
+			},
+		}},
+	})
+	if len(first) != 1 {
+		t.Fatalf("first sent len = %d, want 1", len(first))
+	}
+	if !strings.Contains(first[0].text, "resume failed:") {
+		t.Fatalf("first sent text = %q, want resume failure", first[0].text)
+	}
+
+	cursor, err := state.NewStore(root).LoadCursor("telegram_updates")
+	if err != nil {
+		t.Fatalf("LoadCursor() error = %v", err)
+	}
+	if cursor != 8 {
+		t.Fatalf("cursor = %d, want 8", cursor)
+	}
+
+	second := runOnce(&fakeBotClient{
+		updates: []telegram.Update{{
+			UpdateID: 7,
+			Message: telegram.UpdateMessage{
+				UserID:   1001,
+				ChatID:   -1001234567890,
+				ThreadID: 42,
+				Text:     "continue",
 			},
 		}},
 	})

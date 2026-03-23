@@ -69,6 +69,9 @@ Expected config:
 - state dir
 - log level
 
+If Codex or the support role is pointed at an OpenAI-compatible reverse proxy, that proxy must allow Responses API request bodies larger than the nginx default.
+For nginx, set `client_max_body_size` high enough for resumed threads.
+
 ## Service-account stance
 
 The production default should prefer the real operator account when that account already owns provider auth and binaries.
@@ -94,6 +97,7 @@ On restart the daemon should:
 3. restore update offsets
 4. avoid replaying stale Telegram updates
 5. resume cleanly without duplicate visible delivery
+6. treat a provider turn failure as a session failure, not a daemon-fatal error
 
 ## Safety
 

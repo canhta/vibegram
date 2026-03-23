@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -208,6 +209,8 @@ type fakeCodexSessionRunner struct {
 	startResult       codexprovider.SessionResult
 	resumeResult      codexprovider.SessionResult
 	resumeResults     []codexprovider.SessionResult
+	startErr          error
+	resumeErr         error
 	startRelease      chan struct{}
 	startCalled       chan struct{}
 }
@@ -238,6 +241,9 @@ func (f *fakeCodexSessionRunner) Start(ctx context.Context, workDir, prompt stri
 	if f.startRelease != nil {
 		<-f.startRelease
 	}
+	if f.startErr != nil {
+		return codexprovider.SessionResult{}, f.startErr
+	}
 	return f.startResult, nil
 }
 
@@ -256,6 +262,9 @@ func (f *fakeCodexSessionRunner) StartStream(ctx context.Context, workDir, promp
 	if f.startRelease != nil {
 		<-f.startRelease
 	}
+	if f.startErr != nil {
+		return codexprovider.SessionResult{}, f.startErr
+	}
 	return f.startResult, nil
 }
 
@@ -264,6 +273,9 @@ func (f *fakeCodexSessionRunner) Resume(ctx context.Context, workDir, providerSe
 	f.resumeSessionID = providerSessionID
 	f.resumePrompt = prompt
 	f.resumePrompts = append(f.resumePrompts, prompt)
+	if f.resumeErr != nil {
+		return codexprovider.SessionResult{}, f.resumeErr
+	}
 	if len(f.resumeResults) > 0 {
 		result := f.resumeResults[0]
 		f.resumeResults = f.resumeResults[1:]
@@ -279,6 +291,9 @@ func (f *fakeCodexSessionRunner) ResumeStream(ctx context.Context, workDir, prov
 	f.resumePrompts = append(f.resumePrompts, prompt)
 	for _, line := range f.resumeStreamLines {
 		onLine(line)
+	}
+	if f.resumeErr != nil {
+		return codexprovider.SessionResult{}, f.resumeErr
 	}
 	if len(f.resumeResults) > 0 {
 		result := f.resumeResults[0]
@@ -498,6 +513,103 @@ func TestRuntimeHandleSessionTopicMessageResumesProviderSession(t *testing.T) {
 	}
 	if bot.sent[0].threadID == nil || *bot.sent[0].threadID != 42 {
 		t.Fatalf("threadID = %v, want 42", bot.sent[0].threadID)
+	}
+}
+
+func TestRuntimeHandleSessionTopicResumeFailureMarksSessionFailedWithoutReturningError(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_1",
+		ActiveRunID:    "run_1",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+	}
+	run := state.Run{
+		ID:                "run_1",
+		SessionID:         "ses_1",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeErr: errors.New("codex exit 1: unexpected status 413 Payload Too Large"),
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+	rt.sessionsByThread[42] = "ses_1"
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 2,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 42,
+			Text:     "continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v, want nil", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages = %d, want 1", len(bot.sent))
+	}
+	if !strings.Contains(bot.sent[0].text, "resume failed: codex exit 1: unexpected status 413 Payload Too Large") {
+		t.Fatalf("sent text = %q, want resume failure notice", bot.sent[0].text)
+	}
+	if bot.sent[0].threadID == nil || *bot.sent[0].threadID != 42 {
+		t.Fatalf("threadID = %v, want 42", bot.sent[0].threadID)
+	}
+
+	updatedSession, err := store.LoadSession("ses_1")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if updatedSession.Status != state.SessionStatusFailed {
+		t.Fatalf("session status = %q, want %q", updatedSession.Status, state.SessionStatusFailed)
+	}
+	if updatedSession.ActiveRunID == "run_1" {
+		t.Fatalf("ActiveRunID = %q, want a new failed run", updatedSession.ActiveRunID)
+	}
+
+	failedRun, err := store.LoadRun(updatedSession.ActiveRunID)
+	if err != nil {
+		t.Fatalf("LoadRun() error = %v", err)
+	}
+	if failedRun.Status != state.RunStatusFailed {
+		t.Fatalf("run status = %q, want %q", failedRun.Status, state.RunStatusFailed)
+	}
+	if failedRun.ProviderSessionID != "thread-123" {
+		t.Fatalf("ProviderSessionID = %q, want %q", failedRun.ProviderSessionID, "thread-123")
 	}
 }
 
@@ -770,6 +882,104 @@ func TestRuntimeHandleSessionTopicMessageAllowsAutoReplyOnResumedCodexStop(t *te
 	}
 	if bot.sent[2].text != "I'll use the Go standard library testing package." {
 		t.Fatalf("sent text[2] = %q", bot.sent[2].text)
+	}
+}
+
+func TestRuntimeMaybeAutoReplyResumeFailureMarksSessionFailedWithoutReturningError(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_1",
+		ActiveRunID:    "run_1",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+	}
+	run := state.Run{
+		ID:                "run_1",
+		SessionID:         "ses_1",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeErr: errors.New("codex exit 1: unexpected status 413 Payload Too Large"),
+	}
+	engine := &fakePolicyEngine{
+		decision: policy.PolicyDecision{
+			Action:  roles.ActionReply,
+			Message: "Use Go's standard library testing package.",
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		engine,
+		nil,
+	)
+
+	err := rt.maybeAutoReplyForEvent(context.Background(), -1001234567890, 42, session, run, events.NormalizedEvent{
+		EventType: events.EventTypeQuestion,
+		Summary:   "Which test framework should I use?",
+		Timestamp: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("maybeAutoReplyForEvent() error = %v, want nil", err)
+	}
+
+	if len(bot.sent) != 2 {
+		t.Fatalf("sent messages = %d, want 2", len(bot.sent))
+	}
+	if bot.sent[0].text != "Agent reply: Use Go's standard library testing package." {
+		t.Fatalf("sent text[0] = %q", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[1].text, "resume failed: codex exit 1: unexpected status 413 Payload Too Large") {
+		t.Fatalf("sent text[1] = %q, want resume failure", bot.sent[1].text)
+	}
+
+	updatedSession, err := store.LoadSession("ses_1")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if updatedSession.Status != state.SessionStatusFailed {
+		t.Fatalf("session status = %q, want %q", updatedSession.Status, state.SessionStatusFailed)
+	}
+	if updatedSession.LastRoleUsed != "support" {
+		t.Fatalf("LastRoleUsed = %q, want %q", updatedSession.LastRoleUsed, "support")
+	}
+	if updatedSession.ReplyAttemptCount != 1 {
+		t.Fatalf("ReplyAttemptCount = %d, want 1", updatedSession.ReplyAttemptCount)
+	}
+
+	failedRun, err := store.LoadRun(updatedSession.ActiveRunID)
+	if err != nil {
+		t.Fatalf("LoadRun() error = %v", err)
+	}
+	if failedRun.Status != state.RunStatusFailed {
+		t.Fatalf("run status = %q, want %q", failedRun.Status, state.RunStatusFailed)
 	}
 }
 

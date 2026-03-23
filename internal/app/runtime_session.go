@@ -120,7 +120,8 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 		result, err = runner.Resume(ctx, session.WorkRoot, run.ProviderSessionID, text)
 	}
 	if err != nil {
-		return fmt.Errorf("resume provider session: %w", err)
+		session.LastHumanActorID = userID
+		return r.recordResumeFailure(ctx, chatID, threadID, session, run, err)
 	}
 	if err := observer.Err(); err != nil {
 		return err
@@ -267,7 +268,9 @@ func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, thre
 	}
 	replyResult, err := runner.Resume(ctx, session.WorkRoot, run.ProviderSessionID, decision.Message)
 	if err != nil {
-		return fmt.Errorf("resume after support reply: %w", err)
+		session.LastRoleUsed = "support"
+		session.ReplyAttemptCount++
+		return r.recordResumeFailure(ctx, chatID, threadID, session, run, err)
 	}
 
 	replyRunID := state.RunID(makeID("run"))
@@ -292,6 +295,35 @@ func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, thre
 		return fmt.Errorf("save auto-reply session: %w", err)
 	}
 	return r.deliverSessionResult(ctx, chatID, threadID, session, replyRun, replyResult, nil, false)
+}
+
+func (r *Runtime) recordResumeFailure(ctx context.Context, chatID int64, threadID int, session state.Session, previousRun state.Run, resumeErr error) error {
+	now := time.Now().UTC()
+	failedRun := state.Run{
+		ID:                state.RunID(makeID("run")),
+		SessionID:         session.ID,
+		Provider:          session.Provider,
+		ProviderSessionID: previousRun.ProviderSessionID,
+		Status:            state.RunStatusFailed,
+		StartedAt:         now,
+		UpdatedAt:         now,
+	}
+	if err := r.store.SaveRun(failedRun); err != nil {
+		return fmt.Errorf("save failed run: %w", err)
+	}
+
+	session.ActiveRunID = failedRun.ID
+	session.Status = state.SessionStatusFailed
+	session.LastBlocker = resumeErr.Error()
+	session.EscalationState = state.EscalationStateNeeded
+	if err := r.store.SaveSession(session); err != nil {
+		return fmt.Errorf("save failed session: %w", err)
+	}
+
+	if err := r.bot.SendMessage(ctx, chatID, &threadID, "resume failed: "+resumeErr.Error()); err != nil {
+		return fmt.Errorf("send resume failure: %w", err)
+	}
+	return nil
 }
 
 func topicNameForDraft(draft generalDraft, shortCode string) string {
