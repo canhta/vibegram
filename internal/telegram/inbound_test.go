@@ -26,6 +26,14 @@ func (m *mockSessionLookup) ByThreadID(threadID int) (string, bool) {
 	return id, ok
 }
 
+type mockStatusReporter struct {
+	text string
+}
+
+func (m *mockStatusReporter) Status() string {
+	return m.text
+}
+
 func makeInboundRouter() (*InboundRouter, *mockPTYWriter) {
 	auth := NewAuthorizer([]int64{1001}, []int64{1002})
 	pty := &mockPTYWriter{}
@@ -86,15 +94,16 @@ func TestInboundRouterUnknownTopicIsIgnored(t *testing.T) {
 
 func TestInboundRouterGeneralTopicStatusCommand(t *testing.T) {
 	r, _ := makeInboundRouter()
+	r.StatusReporter = &mockStatusReporter{text: "General control room\nActive: 0\nNo active sessions."}
 	reply, err := r.HandleUpdate(1001, 1, "status")
 	if err != nil {
 		t.Fatalf("HandleUpdate: %v", err)
 	}
-	if reply == "" {
-		t.Error("expected non-empty reply for status command")
+	if !strings.Contains(reply, "General control room") {
+		t.Fatalf("expected control-room summary, got %q", reply)
 	}
-	if !strings.Contains(strings.ToLower(reply), "status") {
-		t.Errorf("expected reply to contain 'status', got %q", reply)
+	if !strings.Contains(reply, "No active sessions.") {
+		t.Fatalf("expected no-active-sessions guidance, got %q", reply)
 	}
 }
 

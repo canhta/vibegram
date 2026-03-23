@@ -127,6 +127,40 @@ func TestSnapshotApplyNonBlockedResetsReplyAttemptCount(t *testing.T) {
 	}
 }
 
+func TestSnapshotApplySupportFallbackMarksAskHuman(t *testing.T) {
+	s := &Snapshot{}
+	event := makeEvent(events.EventTypeQuestion, "which file should I edit?")
+
+	s.Apply(event)
+	s.ApplySupportFallback(event)
+
+	if s.SupportState != string(SupportStateAskHuman) {
+		t.Fatalf("SupportState = %q, want %q", s.SupportState, SupportStateAskHuman)
+	}
+	if s.SupportDecisionSummary != "which file should I edit?" {
+		t.Fatalf("SupportDecisionSummary = %q, want %q", s.SupportDecisionSummary, "which file should I edit?")
+	}
+	if !s.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+}
+
+func TestSnapshotApplySupportDecisionMarksReply(t *testing.T) {
+	s := &Snapshot{}
+
+	s.ApplySupportDecision(SupportStateReplied, "Use Go's testing package", false)
+
+	if s.SupportState != string(SupportStateReplied) {
+		t.Fatalf("SupportState = %q, want %q", s.SupportState, SupportStateReplied)
+	}
+	if s.SupportDecisionSummary != "Use Go's testing package" {
+		t.Fatalf("SupportDecisionSummary = %q, want %q", s.SupportDecisionSummary, "Use Go's testing package")
+	}
+	if s.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = true, want false")
+	}
+}
+
 func TestSnapshotPersistAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)

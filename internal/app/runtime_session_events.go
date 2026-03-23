@@ -19,7 +19,7 @@ type streamObserver struct {
 	ctx     context.Context
 	chatID  int64
 	thread  int
-	session state.Session
+	session *state.Session
 	run     state.Run
 	deduper *events.Deduper
 
@@ -27,7 +27,7 @@ type streamObserver struct {
 	err error
 }
 
-func newStreamObserver(r *Runtime, ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run) *streamObserver {
+func newStreamObserver(r *Runtime, ctx context.Context, chatID int64, threadID int, session *state.Session, run state.Run) *streamObserver {
 	return &streamObserver{
 		r:       r,
 		ctx:     ctx,
@@ -61,15 +61,18 @@ func (o *streamObserver) Err() error {
 	return o.err
 }
 
-func (r *Runtime) deliverSessionResult(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, result codexprovider.SessionResult, deduper *events.Deduper, allowAutoReply bool) error {
-	normalized := r.normalizedResultEvents(session, run, result)
+func (r *Runtime) deliverSessionResult(ctx context.Context, chatID int64, threadID int, session *state.Session, run state.Run, result codexprovider.SessionResult, deduper *events.Deduper, allowAutoReply bool) error {
+	normalized := r.normalizedResultEvents(*session, run, result)
 	actionable, hasActionable := firstActionableEvent(normalized)
 
 	for _, event := range normalized {
 		if deduper != nil && !deduper.MarkIfNew(event) {
 			continue
 		}
-		if err := r.sendEvent(ctx, chatID, threadID, event); err != nil {
+		if err := r.projectSessionEvent(ctx, chatID, threadID, session, event, r.policy != nil); err != nil {
+			return err
+		}
+		if err := r.sendEvent(ctx, chatID, threadID, session, event); err != nil {
 			return err
 		}
 	}
@@ -77,9 +80,9 @@ func (r *Runtime) deliverSessionResult(ctx context.Context, chatID int64, thread
 	message := strings.TrimSpace(result.Message)
 	if len(normalized) == 0 {
 		if message == "" {
-			return r.bot.SendMessage(ctx, chatID, &threadID, "Sent to "+session.Provider+". No visible reply yet.")
+			return r.sendSessionMessage(ctx, chatID, threadID, session, "Sent to "+session.Provider+". No visible reply yet.")
 		}
-		if err := r.bot.SendMessage(ctx, chatID, &threadID, message); err != nil {
+		if err := r.sendSessionMessage(ctx, chatID, threadID, session, message); err != nil {
 			return err
 		}
 		if allowAutoReply {
@@ -89,7 +92,7 @@ func (r *Runtime) deliverSessionResult(ctx context.Context, chatID int64, thread
 	}
 
 	if message != "" && !messageCoveredByEvents(message, normalized) {
-		if err := r.bot.SendMessage(ctx, chatID, &threadID, message); err != nil {
+		if err := r.sendSessionMessage(ctx, chatID, threadID, session, message); err != nil {
 			return err
 		}
 	}
@@ -100,13 +103,16 @@ func (r *Runtime) deliverSessionResult(ctx context.Context, chatID int64, thread
 	return nil
 }
 
-func (r *Runtime) deliverStreamLine(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, deduper *events.Deduper, line string) error {
-	normalized := r.normalizedProviderStreamLine(session, run, line)
+func (r *Runtime) deliverStreamLine(ctx context.Context, chatID int64, threadID int, session *state.Session, run state.Run, deduper *events.Deduper, line string) error {
+	normalized := r.normalizedProviderStreamLine(*session, run, line)
 	for _, event := range normalized {
 		if deduper != nil && !deduper.MarkIfNew(event) {
 			continue
 		}
-		if err := r.sendEvent(ctx, chatID, threadID, event); err != nil {
+		if err := r.projectSessionEvent(ctx, chatID, threadID, session, event, r.policy != nil); err != nil {
+			return fmt.Errorf("project streamed event: %w", err)
+		}
+		if err := r.sendEvent(ctx, chatID, threadID, session, event); err != nil {
 			return fmt.Errorf("send streamed event: %w", err)
 		}
 	}
@@ -164,7 +170,7 @@ func normalizedCodexTranscriptEvents(sessionID, runID, rawOutput string) []event
 	return normalized
 }
 
-func (r *Runtime) sendEvent(ctx context.Context, chatID int64, threadID int, event events.NormalizedEvent) error {
+func (r *Runtime) sendEvent(ctx context.Context, chatID int64, threadID int, session *state.Session, event events.NormalizedEvent) error {
 	router := telegram.Router{
 		ChatID:          chatID,
 		GeneralThreadID: 1,
@@ -175,11 +181,67 @@ func (r *Runtime) sendEvent(ctx context.Context, chatID int64, threadID int, eve
 		if destination.Type == telegram.TopicSession {
 			targetThread = &destination.ThreadID
 		}
+		if destination.Type == telegram.TopicSession {
+			if err := r.sendSessionMessage(ctx, destination.ChatID, destination.ThreadID, session, telegram.Render(event)); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := r.bot.SendMessage(ctx, destination.ChatID, targetThread, telegram.Render(event)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (r *Runtime) sendSessionMessage(ctx context.Context, chatID int64, threadID int, session *state.Session, text string) error {
+	if err := r.bot.SendMessage(ctx, chatID, &threadID, text); err != nil {
+		if isTopicGoneError(err) {
+			return r.retireMissingSessionTopic(ctx, chatID, session, err)
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *Runtime) retireMissingSessionTopic(ctx context.Context, chatID int64, session *state.Session, cause error) error {
+	if session == nil {
+		return nil
+	}
+
+	wasMapped := session.SessionTopicID > 1
+	if wasMapped {
+		r.mu.Lock()
+		delete(r.sessionsByThread, int(session.SessionTopicID))
+		r.mu.Unlock()
+	}
+
+	if wasMapped {
+		session.SessionTopicID = 0
+	}
+	session.Status = state.SessionStatusFailed
+	session.LastBlocker = cause.Error()
+	session.EscalationState = state.EscalationStateNeeded
+	snap, err := r.loadSessionSnapshot(*session)
+	if err != nil {
+		return fmt.Errorf("load session snapshot: %w", err)
+	}
+	snap.Status = string(session.Status)
+	snap.LastBlocker = session.LastBlocker
+	snap.ApplySupportDecision(state.SupportStateEscalated, cause.Error(), true)
+	session.ApplySnapshot(snap)
+	if err := r.store.SaveSnapshot(string(session.ID), snap); err != nil {
+		return fmt.Errorf("save missing topic snapshot: %w", err)
+	}
+	if err := r.store.SaveSession(*session); err != nil {
+		return fmt.Errorf("retire missing session topic: %w", err)
+	}
+
+	if wasMapped {
+		label := cleanupLabel(0, []state.Session{*session})
+		_ = r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("Session topic missing: %s. Removed it from active routing.", label))
+	}
+	return r.refreshGeneralControlCardIfPresent(ctx, chatID)
 }
 
 func firstActionableEvent(eventsList []events.NormalizedEvent) (events.NormalizedEvent, bool) {

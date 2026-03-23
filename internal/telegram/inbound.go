@@ -1,5 +1,7 @@
 package telegram
 
+import "strings"
+
 // PTYWriter writes text into a running agent process.
 type PTYWriter interface {
 	Write(sessionID string, text string) error
@@ -10,10 +12,15 @@ type SessionLookup interface {
 	ByThreadID(threadID int) (sessionID string, found bool)
 }
 
+type StatusReporter interface {
+	Status() string
+}
+
 type InboundRouter struct {
 	Auth            *Authorizer
 	Sessions        SessionLookup
 	PTY             PTYWriter
+	StatusReporter  StatusReporter
 	GeneralThreadID int
 }
 
@@ -48,6 +55,11 @@ func (r *InboundRouter) handleGeneralTopic(userID int64, text string) (string, e
 
 	switch text {
 	case "status":
+		if r.StatusReporter != nil {
+			if reply := strings.TrimSpace(r.StatusReporter.Status()); reply != "" {
+				return reply, nil
+			}
+		}
 		return "status: ok", nil
 	default:
 		return "", nil

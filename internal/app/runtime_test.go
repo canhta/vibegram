@@ -31,6 +31,7 @@ type fakeBotClient struct {
 	nextMessageID     int
 	updates           []telegram.Update
 	createTopicErr    error
+	sendErrors        map[int]error
 	deletedTopics     []int
 	deleteTopicErrors map[int]error
 }
@@ -74,6 +75,15 @@ func (f *fakeBotClient) CreateForumTopic(ctx context.Context, chatID int64, name
 }
 
 func (f *fakeBotClient) SendMessage(ctx context.Context, chatID int64, threadID *int, text string) error {
+	threadKey := 0
+	if threadID != nil {
+		threadKey = *threadID
+	}
+	if f.sendErrors != nil {
+		if err, ok := f.sendErrors[threadKey]; ok {
+			return err
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextMessageID++
@@ -185,6 +195,33 @@ func (f *fakeBotClient) deletedTopicsSnapshot() []int {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return append([]int(nil), f.deletedTopics...)
+}
+
+func sentMessagesContain(messages []sentMessage, want string) bool {
+	for _, message := range messages {
+		if message.text == want {
+			return true
+		}
+	}
+	return false
+}
+
+func sentMessagesContainSubstring(messages []sentMessage, want string) bool {
+	for _, message := range messages {
+		if strings.Contains(message.text, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func findSentMessage(messages []sentMessage, want string) (sentMessage, bool) {
+	for _, message := range messages {
+		if message.text == want {
+			return message, true
+		}
+	}
+	return sentMessage{}, false
 }
 
 func inlineButtonData(markup telegram.InlineKeyboardMarkup) []string {
@@ -580,14 +617,18 @@ func TestRuntimeHandleSessionTopicResumeFailureMarksSessionFailedWithoutReturnin
 		t.Fatalf("HandleUpdate() error = %v, want nil", err)
 	}
 
-	if len(bot.sent) != 1 {
-		t.Fatalf("sent messages = %d, want 1", len(bot.sent))
+	if !sentMessagesContainSubstring(bot.sent, "resume failed: codex exit 1: unexpected status 413 Payload Too Large") {
+		t.Fatalf("sent messages = %+v, want resume failure notice", bot.sent)
 	}
-	if !strings.Contains(bot.sent[0].text, "resume failed: codex exit 1: unexpected status 413 Payload Too Large") {
-		t.Fatalf("sent text = %q, want resume failure notice", bot.sent[0].text)
+	resumeFailure, found := findSentMessage(bot.sent, "resume failed: codex exit 1: unexpected status 413 Payload Too Large")
+	if !found {
+		t.Fatalf("sent messages = %+v, want exact resume failure message", bot.sent)
 	}
-	if bot.sent[0].threadID == nil || *bot.sent[0].threadID != 42 {
-		t.Fatalf("threadID = %v, want 42", bot.sent[0].threadID)
+	if resumeFailure.threadID == nil || *resumeFailure.threadID != 42 {
+		t.Fatalf("threadID = %v, want 42", resumeFailure.threadID)
+	}
+	if !sentMessagesContainSubstring(bot.sent, "Support escalated in project codex ") {
+		t.Fatalf("sent messages = %+v, want General escalation awareness", bot.sent)
 	}
 
 	updatedSession, err := store.LoadSession("ses_1")
@@ -757,20 +798,25 @@ func TestRuntimeHandleSessionTopicMessageRendersFilteredCodexEvents(t *testing.T
 		t.Fatalf("HandleUpdate() error = %v", err)
 	}
 
-	if len(bot.sent) != 2 {
-		t.Fatalf("sent messages = %d, want 2 filtered events", len(bot.sent))
+	if len(bot.sent) < 3 {
+		t.Fatalf("sent messages = %d, want header card plus filtered events", len(bot.sent))
 	}
-	if bot.sent[0].text != "Tool: shell — go test ./..." {
-		t.Fatalf("sent text[0] = %q", bot.sent[0].text)
+	toolMessage, found := findSentMessage(bot.sent, "Tool: shell — go test ./...")
+	if !found {
+		t.Fatalf("sent messages = %+v, want tool event", bot.sent)
 	}
-	if bot.sent[0].threadID == nil || *bot.sent[0].threadID != 42 {
-		t.Fatalf("sent thread[0] = %v, want session topic 42", bot.sent[0].threadID)
+	if toolMessage.threadID == nil || *toolMessage.threadID != 42 {
+		t.Fatalf("sent thread(tool) = %v, want session topic 42", toolMessage.threadID)
 	}
-	if bot.sent[1].text != "Question: Which test framework should I use?" {
-		t.Fatalf("sent text[1] = %q", bot.sent[1].text)
+	questionMessage, found := findSentMessage(bot.sent, "Question: Which test framework should I use?")
+	if !found {
+		t.Fatalf("sent messages = %+v, want question event", bot.sent)
 	}
-	if bot.sent[1].threadID == nil || *bot.sent[1].threadID != 42 {
-		t.Fatalf("sent thread[1] = %v, want session topic 42", bot.sent[1].threadID)
+	if questionMessage.threadID == nil || *questionMessage.threadID != 42 {
+		t.Fatalf("sent thread(question) = %v, want session topic 42", questionMessage.threadID)
+	}
+	if !sentMessagesContainSubstring(bot.sent, "Support: idle") {
+		t.Fatalf("sent messages = %+v, want session header card for existing session", bot.sent)
 	}
 }
 
@@ -871,17 +917,23 @@ func TestRuntimeHandleSessionTopicMessageAllowsAutoReplyOnResumedCodexStop(t *te
 	if codex.resumePrompts[1] != "Use Go's standard library testing package." {
 		t.Fatalf("second resume prompt = %q, want CEO reply", codex.resumePrompts[1])
 	}
-	if len(bot.sent) != 3 {
-		t.Fatalf("sent messages = %d, want 3", len(bot.sent))
+	if len(bot.sent) != 5 {
+		t.Fatalf("sent messages = %d, want 5", len(bot.sent))
 	}
-	if bot.sent[0].text != "Question: Which test framework should I use?" {
-		t.Fatalf("sent text[0] = %q", bot.sent[0].text)
+	if !sentMessagesContain(bot.sent, "Question: Which test framework should I use?") {
+		t.Fatalf("sent messages = %+v, want question message", bot.sent)
 	}
-	if bot.sent[1].text != "Agent reply: Use Go's standard library testing package." {
-		t.Fatalf("sent text[1] = %q", bot.sent[1].text)
+	if !sentMessagesContainSubstring(bot.sent, "Support replied in project codex ") {
+		t.Fatalf("sent messages = %+v, want General support awareness", bot.sent)
 	}
-	if bot.sent[2].text != "I'll use the Go standard library testing package." {
-		t.Fatalf("sent text[2] = %q", bot.sent[2].text)
+	if !sentMessagesContain(bot.sent, "Agent reply: Use Go's standard library testing package.") {
+		t.Fatalf("sent messages = %+v, want agent reply note", bot.sent)
+	}
+	if !sentMessagesContain(bot.sent, "I'll use the Go standard library testing package.") {
+		t.Fatalf("sent messages = %+v, want follow-up message", bot.sent)
+	}
+	if !sentMessagesContainSubstring(bot.sent, "Support: idle") {
+		t.Fatalf("sent messages = %+v, want session header card for existing session", bot.sent)
 	}
 }
 
@@ -941,7 +993,7 @@ func TestRuntimeMaybeAutoReplyResumeFailureMarksSessionFailedWithoutReturningErr
 		nil,
 	)
 
-	err := rt.maybeAutoReplyForEvent(context.Background(), -1001234567890, 42, session, run, events.NormalizedEvent{
+	err := rt.maybeAutoReplyForEvent(context.Background(), -1001234567890, 42, &session, run, events.NormalizedEvent{
 		EventType: events.EventTypeQuestion,
 		Summary:   "Which test framework should I use?",
 		Timestamp: time.Now().UTC(),
@@ -950,14 +1002,17 @@ func TestRuntimeMaybeAutoReplyResumeFailureMarksSessionFailedWithoutReturningErr
 		t.Fatalf("maybeAutoReplyForEvent() error = %v, want nil", err)
 	}
 
-	if len(bot.sent) != 2 {
-		t.Fatalf("sent messages = %d, want 2", len(bot.sent))
+	if !sentMessagesContain(bot.sent, "Agent reply: Use Go's standard library testing package.") {
+		t.Fatalf("sent messages = %+v, want agent reply note", bot.sent)
 	}
-	if bot.sent[0].text != "Agent reply: Use Go's standard library testing package." {
-		t.Fatalf("sent text[0] = %q", bot.sent[0].text)
+	if !sentMessagesContainSubstring(bot.sent, "Support replied in project codex ") || !sentMessagesContainSubstring(bot.sent, "Use Go's standard library testing package.") {
+		t.Fatalf("sent messages = %+v, want reply awareness", bot.sent)
 	}
-	if !strings.Contains(bot.sent[1].text, "resume failed: codex exit 1: unexpected status 413 Payload Too Large") {
-		t.Fatalf("sent text[1] = %q, want resume failure", bot.sent[1].text)
+	if !sentMessagesContainSubstring(bot.sent, "Support escalated in project codex ") || !sentMessagesContainSubstring(bot.sent, "unexpected status 413 Payload Too Large") {
+		t.Fatalf("sent messages = %+v, want escalation awareness", bot.sent)
+	}
+	if !sentMessagesContainSubstring(bot.sent, "resume failed: codex exit 1: unexpected status 413 Payload Too Large") {
+		t.Fatalf("sent messages = %+v, want resume failure", bot.sent)
 	}
 
 	updatedSession, err := store.LoadSession("ses_1")
@@ -1065,24 +1120,26 @@ func TestRuntimeHandleGeneralCleanupShowsPicker(t *testing.T) {
 
 	for _, session := range []state.Session{
 		{
-			ID:             "ses_12",
-			ActiveRunID:    "run_12",
-			Provider:       "codex",
-			GeneralTopicID: 1,
-			SessionTopicID: 12,
-			WorkRoot:       "/tmp/project-a",
-			Status:         state.SessionStatusRunning,
-			Phase:          state.SessionPhasePlanning,
+			ID:                "ses_12",
+			ActiveRunID:       "run_12",
+			Provider:          "codex",
+			GeneralTopicID:    1,
+			SessionTopicID:    12,
+			SessionTopicTitle: "Actual Topic A",
+			WorkRoot:          "/tmp/project-a",
+			Status:            state.SessionStatusRunning,
+			Phase:             state.SessionPhasePlanning,
 		},
 		{
-			ID:             "ses_14",
-			ActiveRunID:    "run_14",
-			Provider:       "claude",
-			GeneralTopicID: 1,
-			SessionTopicID: 14,
-			WorkRoot:       "/tmp/project-b",
-			Status:         state.SessionStatusRunning,
-			Phase:          state.SessionPhasePlanning,
+			ID:                "ses_14",
+			ActiveRunID:       "run_14",
+			Provider:          "claude",
+			GeneralTopicID:    1,
+			SessionTopicID:    14,
+			SessionTopicTitle: "Actual Topic B",
+			WorkRoot:          "/tmp/project-b",
+			Status:            state.SessionStatusRunning,
+			Phase:             state.SessionPhasePlanning,
 		},
 	} {
 		if err := store.SaveSession(session); err != nil {
@@ -1129,11 +1186,11 @@ func TestRuntimeHandleGeneralCleanupShowsPicker(t *testing.T) {
 		t.Fatalf("cleanup picker text = %q", bot.sent[0].text)
 	}
 	labels := inlineButtonLabels(*bot.sent[0].markup)
-	if !containsLabel(labels, "project-a") {
-		t.Fatalf("cleanup labels = %v, want project-a", labels)
+	if !containsLabel(labels, "Actual Topic A") {
+		t.Fatalf("cleanup labels = %v, want Actual Topic A", labels)
 	}
-	if !containsLabel(labels, "project-b") {
-		t.Fatalf("cleanup labels = %v, want project-b", labels)
+	if !containsLabel(labels, "Actual Topic B") {
+		t.Fatalf("cleanup labels = %v, want Actual Topic B", labels)
 	}
 	if !containsLabel(labels, "All") {
 		t.Fatalf("cleanup labels = %v, want All", labels)
@@ -1144,6 +1201,19 @@ func TestRuntimeHandleGeneralCleanupShowsPicker(t *testing.T) {
 	}
 	if !containsLabel(data, "cleanup:all") {
 		t.Fatalf("cleanup callback data = %v, want cleanup:all", data)
+	}
+}
+
+func TestCleanupLabelFallsBackToDerivedTopicTitle(t *testing.T) {
+	label := cleanupLabel(42, []state.Session{{
+		ID:             "ses_1774230019339001903",
+		Provider:       "codex",
+		WorkRoot:       "/home/ubuntu/projects/vibegram",
+		SessionTopicID: 42,
+	}})
+
+	if label != "vibegram codex 1903" {
+		t.Fatalf("cleanupLabel() = %q, want %q", label, "vibegram codex 1903")
 	}
 }
 
@@ -1184,6 +1254,411 @@ func TestRuntimeHandleGeneralCleanupRepliesWhenNoTopicsExist(t *testing.T) {
 
 	if len(bot.sent) != 1 || bot.sent[0].markup != nil || !strings.Contains(bot.sent[0].text, "cleanup: no session topics") {
 		t.Fatalf("cleanup empty reply = %+v", bot.sent)
+	}
+}
+
+func TestRuntimeHandleGeneralStatusCreatesAndRefreshesPersistentControlCard(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:                "ses_1",
+		ActiveRunID:       "run_1",
+		Provider:          "codex",
+		GeneralTopicID:    1,
+		SessionTopicID:    42,
+		SessionTopicTitle: "Topic Alpha",
+		Status:            state.SessionStatusRunning,
+		Phase:             state.SessionPhaseEditing,
+		LastGoal:          "tighten launch flow",
+		LastBlocker:       "stale blocker",
+		LastQuestion:      "old question",
+		WorkRoot:          "/tmp/project",
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveSnapshot("ses_1", state.Snapshot{
+		SessionID:              "ses_1",
+		Phase:                  string(state.SessionPhaseEditing),
+		Status:                 string(state.SessionStatusRunning),
+		LastBlocker:            "waiting on provider output",
+		LastQuestion:           "which branch should we ship?",
+		RecentFilesSummary:     "internal/app/runtime.go",
+		RecentTestsSummary:     "go test ./... green",
+		ReplyAttemptCount:      1,
+		EscalationState:        string(state.EscalationStateNone),
+		SupportState:           string(state.SupportStateAskHuman),
+		SupportDecisionSummary: "choose the release branch before shipping",
+		HumanActionNeeded:      true,
+		UpdatedAt:              time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveSnapshot() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	first := telegram.Update{
+		UpdateID: 40,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/status",
+		},
+	}
+	if err := rt.HandleUpdate(context.Background(), first); err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages = %d, want 1 control card", len(bot.sent))
+	}
+	if bot.sent[0].markup == nil {
+		t.Fatal("status control card markup = nil")
+	}
+	if !strings.Contains(bot.sent[0].text, "General control room") {
+		t.Fatalf("control card text = %q, want title", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Needs you now: 1") {
+		t.Fatalf("control card text = %q, want attention count", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "waiting on provider output") {
+		t.Fatalf("control card text = %q, want snapshot blocker", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "go test ./... green") {
+		t.Fatalf("control card text = %q, want snapshot tests", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Support: ask human") {
+		t.Fatalf("control card text = %q, want support state", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Decision: choose the release branch before shipping") {
+		t.Fatalf("control card text = %q, want support decision summary", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Needs you now: yes") {
+		t.Fatalf("control card text = %q, want per-session human action marker", bot.sent[0].text)
+	}
+	if strings.Contains(bot.sent[0].text, "stale blocker") {
+		t.Fatalf("control card text = %q, want snapshot values to win over stale session state", bot.sent[0].text)
+	}
+
+	cursor, err := store.LoadCursor("general_control_card_message_id")
+	if err != nil {
+		t.Fatalf("LoadCursor() error = %v", err)
+	}
+	if cursor != int64(bot.sent[0].messageID) {
+		t.Fatalf("cursor = %d, want %d", cursor, bot.sent[0].messageID)
+	}
+
+	restarted := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+	if err := restarted.HandleUpdate(context.Background(), first); err != nil {
+		t.Fatalf("HandleUpdate() after restart error = %v", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages after restart = %d, want 1 create and 1 refresh", len(bot.sent))
+	}
+	if len(bot.edited) != 1 {
+		t.Fatalf("edited messages after restart = %d, want 1 refresh", len(bot.edited))
+	}
+	if bot.edited[0].messageID != bot.sent[0].messageID {
+		t.Fatalf("edited messageID = %d, want %d", bot.edited[0].messageID, bot.sent[0].messageID)
+	}
+	if !strings.Contains(bot.edited[0].text, "General control room") {
+		t.Fatalf("edited control card text = %q, want title", bot.edited[0].text)
+	}
+}
+
+func TestRuntimeHandleGeneralStatusShowsNoActiveSessions(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 41,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/status",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages = %d, want 1 no-active-sessions control card", len(bot.sent))
+	}
+	if bot.sent[0].markup == nil {
+		t.Fatal("status control card markup = nil")
+	}
+	if !strings.Contains(bot.sent[0].text, "No active sessions.") {
+		t.Fatalf("control card text = %q, want no-active-sessions state", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Use /new to start one.") {
+		t.Fatalf("control card text = %q, want next-step guidance", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Needs you now: 0") {
+		t.Fatalf("control card text = %q, want zero-attention count", bot.sent[0].text)
+	}
+}
+
+func TestRuntimeHandleGeneralStatusFallsBackToSessionSupportStateWithoutSnapshot(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if err := store.SaveSession(state.Session{
+		ID:                     "ses_2",
+		ActiveRunID:            "run_2",
+		Provider:               "codex",
+		GeneralTopicID:         1,
+		SessionTopicID:         44,
+		SessionTopicTitle:      "Topic Beta",
+		Status:                 state.SessionStatusBlocked,
+		Phase:                  state.SessionPhaseWaiting,
+		LastGoal:               "close the launch checklist",
+		LastQuestion:           "should we cut the patch now?",
+		SupportState:           state.SupportStateEscalated,
+		SupportDecisionSummary: "waiting for human approval to release",
+		HumanActionNeeded:      true,
+		WorkRoot:               "/tmp/project-beta",
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 42,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/status",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages = %d, want 1 control card", len(bot.sent))
+	}
+	if !strings.Contains(bot.sent[0].text, "Topic Beta | codex | blocked") {
+		t.Fatalf("control card text = %q, want session summary", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Support: escalated") {
+		t.Fatalf("control card text = %q, want fallback support state", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Decision: waiting for human approval to release") {
+		t.Fatalf("control card text = %q, want fallback support decision", bot.sent[0].text)
+	}
+	if !strings.Contains(bot.sent[0].text, "Needs you now: yes") {
+		t.Fatalf("control card text = %q, want fallback human action marker", bot.sent[0].text)
+	}
+}
+
+func TestRuntimeHandleGeneralStatusIncludesFailedEscalatedSessionNeedingHumanAction(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if err := store.SaveSession(state.Session{
+		ID:                     "ses_failed",
+		ActiveRunID:            "run_failed",
+		Provider:               "codex",
+		GeneralTopicID:         1,
+		SessionTopicID:         45,
+		Status:                 state.SessionStatusFailed,
+		Phase:                  state.SessionPhasePlanning,
+		WorkRoot:               "/tmp/project-failed",
+		EscalationState:        state.EscalationStateNeeded,
+		SupportState:           state.SupportStateEscalated,
+		SupportDecisionSummary: "provider offline",
+		HumanActionNeeded:      true,
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 43,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/status",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	text := bot.sent[0].text
+	if strings.Contains(text, "No active sessions.") {
+		t.Fatalf("control card text = %q, want failed session to stay visible", text)
+	}
+	if !strings.Contains(text, "Needs you now: 1") {
+		t.Fatalf("control card text = %q, want attention count", text)
+	}
+	if !strings.Contains(text, "project-failed codex") {
+		t.Fatalf("control card text = %q, want derived topic title", text)
+	}
+	if !strings.Contains(text, "| failed") {
+		t.Fatalf("control card text = %q, want failed status", text)
+	}
+}
+
+func TestRuntimeApplySupportDecisionCreatesHeaderRefreshesGeneralCardAndPostsAwareness(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:                "ses_3",
+		ActiveRunID:       "run_3",
+		Provider:          "codex",
+		GeneralTopicID:    1,
+		SessionTopicID:    46,
+		SessionTopicTitle: "Topic Gamma",
+		Status:            state.SessionStatusRunning,
+		Phase:             state.SessionPhaseEditing,
+		LastGoal:          "finish the control room",
+		WorkRoot:          "/tmp/project-gamma",
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	if err := rt.refreshGeneralControlCard(context.Background(), -1001234567890); err != nil {
+		t.Fatalf("refreshGeneralControlCard() error = %v", err)
+	}
+
+	snap, err := rt.loadSessionSnapshot(session)
+	if err != nil {
+		t.Fatalf("loadSessionSnapshot() error = %v", err)
+	}
+	if err := rt.applySupportDecision(context.Background(), -1001234567890, 46, &session, snap, state.SupportStateReplied, "Use Go's testing package.", false); err != nil {
+		t.Fatalf("applySupportDecision() error = %v", err)
+	}
+
+	updated, err := store.LoadSession("ses_3")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if updated.SessionHeaderMessageID == 0 {
+		t.Fatal("SessionHeaderMessageID = 0, want header to be created for existing session")
+	}
+
+	if !sentMessagesContain(bot.sentSnapshot(), "Support replied in Topic Gamma: Use Go's testing package.") {
+		t.Fatalf("sent messages = %+v, want General awareness", bot.sentSnapshot())
+	}
+
+	edits := bot.editedSnapshot()
+	if len(edits) == 0 {
+		t.Fatal("editedSnapshot() = 0, want General control card refresh")
+	}
+	if !strings.Contains(edits[len(edits)-1].text, "Support: replied") {
+		t.Fatalf("control card edit = %q, want support state", edits[len(edits)-1].text)
+	}
+	if !strings.Contains(edits[len(edits)-1].text, "Decision: Use Go's testing package.") {
+		t.Fatalf("control card edit = %q, want support decision", edits[len(edits)-1].text)
 	}
 }
 

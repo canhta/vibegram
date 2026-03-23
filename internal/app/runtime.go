@@ -137,8 +137,7 @@ func (r *Runtime) handleGeneralTopic(ctx context.Context, chatID, userID int64, 
 
 	switch {
 	case text == "status":
-		msg := fmt.Sprintf("status: ok (%d sessions)", r.sessionCount())
-		return r.bot.SendMessage(ctx, chatID, nil, msg)
+		return r.refreshGeneralControlCard(ctx, chatID)
 
 	case text == "new":
 		return r.startGeneralDraft(ctx, chatID, userID)

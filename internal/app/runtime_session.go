@@ -25,18 +25,20 @@ func (r *Runtime) launchDraftSession(ctx context.Context, chatID, userID int64, 
 	now := time.Now().UTC()
 
 	session := state.Session{
-		ID:               sessionID,
-		ActiveRunID:      runID,
-		Provider:         draft.Provider,
-		GeneralTopicID:   1,
-		SessionTopicID:   int64(threadID),
-		Status:           state.SessionStatusRunning,
-		Phase:            state.SessionPhasePlanning,
-		LastGoal:         goal,
-		EscalationState:  state.EscalationStateNone,
-		OwnerUserID:      userID,
-		LastHumanActorID: userID,
-		WorkRoot:         draft.WorkRoot,
+		ID:                sessionID,
+		ActiveRunID:       runID,
+		Provider:          draft.Provider,
+		GeneralTopicID:    1,
+		SessionTopicID:    int64(threadID),
+		SessionTopicTitle: topicName,
+		Status:            state.SessionStatusRunning,
+		Phase:             state.SessionPhasePlanning,
+		LastGoal:          goal,
+		EscalationState:   state.EscalationStateNone,
+		SupportState:      state.SupportStateIdle,
+		OwnerUserID:       userID,
+		LastHumanActorID:  userID,
+		WorkRoot:          draft.WorkRoot,
 	}
 	run := state.Run{
 		ID:        runID,
@@ -53,6 +55,9 @@ func (r *Runtime) launchDraftSession(ctx context.Context, chatID, userID int64, 
 	if err := r.store.SaveRun(run); err != nil {
 		return fmt.Errorf("save run: %w", err)
 	}
+	if err := r.upsertSessionHeaderCard(ctx, chatID, threadID, &session, true); err != nil {
+		return fmt.Errorf("create session header card: %w", err)
+	}
 
 	r.mu.Lock()
 	r.sessionsByThread[threadID] = sessionID
@@ -60,9 +65,6 @@ func (r *Runtime) launchDraftSession(ctx context.Context, chatID, userID int64, 
 
 	if err := r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("Session started: %s", topicName)); err != nil {
 		return fmt.Errorf("send general start notice: %w", err)
-	}
-	if err := r.bot.SendMessage(ctx, chatID, &threadID, renderSessionStartSummary(draft)); err != nil {
-		return fmt.Errorf("send session summary: %w", err)
 	}
 
 	r.wg.Add(1)
@@ -110,7 +112,7 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 		StartedAt:         time.Now().UTC(),
 		UpdatedAt:         time.Now().UTC(),
 	}
-	observer := newStreamObserver(r, ctx, chatID, threadID, session, streamRun)
+	observer := newStreamObserver(r, ctx, chatID, threadID, &session, streamRun)
 
 	var result codexprovider.SessionResult
 	streamer, canStream := runner.(streamingSessionRunner)
@@ -121,7 +123,7 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 	}
 	if err != nil {
 		session.LastHumanActorID = userID
-		return r.recordResumeFailure(ctx, chatID, threadID, session, run, err)
+		return r.recordResumeFailure(ctx, chatID, threadID, &session, run, err)
 	}
 	if err := observer.Err(); err != nil {
 		return err
@@ -148,18 +150,18 @@ func (r *Runtime) handleSessionTopic(ctx context.Context, chatID int64, threadID
 		return fmt.Errorf("save resumed session: %w", err)
 	}
 
-	return r.deliverSessionResult(ctx, chatID, threadID, session, newRun, result, observer.deduper, true)
+	return r.deliverSessionResult(ctx, chatID, threadID, &session, newRun, result, observer.deduper, true)
 }
 
 func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, goal string) {
 	defer r.wg.Done()
 	runner := r.runnerForProvider(session.Provider)
 	if runner == nil {
-		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: unknown provider "+session.Provider)
+		_ = r.recordStartFailure(ctx, chatID, threadID, &session, run, fmt.Errorf("unknown provider %s", session.Provider))
 		return
 	}
 
-	observer := newStreamObserver(r, ctx, chatID, threadID, session, run)
+	observer := newStreamObserver(r, ctx, chatID, threadID, &session, run)
 
 	var result codexprovider.SessionResult
 	var err error
@@ -170,11 +172,11 @@ func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, s
 		result, err = runner.Start(ctx, session.WorkRoot, goal)
 	}
 	if err != nil {
-		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: "+err.Error())
+		_ = r.recordStartFailure(ctx, chatID, threadID, &session, run, err)
 		return
 	}
 	if err := observer.Err(); err != nil {
-		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: "+err.Error())
+		_ = r.recordStartFailure(ctx, chatID, threadID, &session, run, err)
 		return
 	}
 
@@ -182,12 +184,12 @@ func (r *Runtime) finishStart(ctx context.Context, chatID int64, threadID int, s
 	run.Status = state.RunStatusExited
 	run.UpdatedAt = time.Now().UTC()
 	if err := r.store.SaveRun(run); err != nil {
-		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: save run: "+err.Error())
+		_ = r.sendSessionMessage(ctx, chatID, threadID, &session, "start failed: save run: "+err.Error())
 		return
 	}
 
-	if err := r.deliverSessionResult(ctx, chatID, threadID, session, run, result, observer.deduper, true); err != nil {
-		_ = r.bot.SendMessage(ctx, chatID, &threadID, "start failed: "+err.Error())
+	if err := r.deliverSessionResult(ctx, chatID, threadID, &session, run, result, observer.deduper, true); err != nil {
+		_ = r.sendSessionMessage(ctx, chatID, threadID, &session, "start failed: "+err.Error())
 	}
 }
 
@@ -202,8 +204,8 @@ func (r *Runtime) runnerForProvider(provider string) sessionRunner {
 	}
 }
 
-func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, message string) error {
-	if r.policy == nil || strings.TrimSpace(message) == "" {
+func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int, session *state.Session, run state.Run, message string) error {
+	if strings.TrimSpace(message) == "" {
 		return nil
 	}
 
@@ -225,10 +227,13 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 	if err != nil {
 		return fmt.Errorf("normalize support event: %w", err)
 	}
+	if err := r.projectSessionEvent(ctx, chatID, threadID, session, event, r.policy != nil); err != nil {
+		return err
+	}
 	return r.maybeAutoReplyForEvent(ctx, chatID, threadID, session, run, event)
 }
 
-func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, threadID int, session state.Session, run state.Run, event events.NormalizedEvent) error {
+func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, threadID int, session *state.Session, run state.Run, event events.NormalizedEvent) error {
 	if r.policy == nil {
 		return nil
 	}
@@ -238,66 +243,71 @@ func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, thre
 		return nil
 	}
 
-	snap, err := r.store.LoadSnapshot(string(session.ID))
+	snap, err := r.loadSessionSnapshot(*session)
 	if err != nil {
-		if err == state.ErrNotFound || strings.Contains(err.Error(), state.ErrNotFound.Error()) {
-			snap = state.Snapshot{
-				SessionID: string(session.ID),
-				Phase:     string(session.Phase),
-				Status:    string(session.Status),
-			}
-		} else {
-			return fmt.Errorf("load snapshot: %w", err)
-		}
-	}
-	snap.Apply(event)
-	if err := r.store.SaveSnapshot(string(session.ID), snap); err != nil {
-		return fmt.Errorf("save snapshot: %w", err)
+		return err
 	}
 
 	decision, err := r.policy.Evaluate(ctx, snap, event)
 	if err != nil {
 		return fmt.Errorf("evaluate support policy: %w", err)
 	}
-	if decision.Action != roles.ActionReply || strings.TrimSpace(decision.Message) == "" {
-		return nil
-	}
+	switch decision.Action {
+	case roles.ActionReply:
+		if strings.TrimSpace(decision.Message) == "" {
+			return nil
+		}
+		if err := r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateReplied, decision.Message, false); err != nil {
+			return err
+		}
+		if err := r.sendSessionMessage(ctx, chatID, threadID, session, "Agent reply: "+decision.Message); err != nil {
+			return fmt.Errorf("send auto-reply note: %w", err)
+		}
+		replyResult, err := runner.Resume(ctx, session.WorkRoot, run.ProviderSessionID, decision.Message)
+		if err != nil {
+			session.LastRoleUsed = "support"
+			session.ReplyAttemptCount++
+			return r.recordResumeFailure(ctx, chatID, threadID, session, run, err)
+		}
 
-	if err := r.bot.SendMessage(ctx, chatID, &threadID, "Agent reply: "+decision.Message); err != nil {
-		return fmt.Errorf("send auto-reply note: %w", err)
-	}
-	replyResult, err := runner.Resume(ctx, session.WorkRoot, run.ProviderSessionID, decision.Message)
-	if err != nil {
+		replyRunID := state.RunID(makeID("run"))
+		now := time.Now().UTC()
+		replyRun := state.Run{
+			ID:                replyRunID,
+			SessionID:         session.ID,
+			Provider:          session.Provider,
+			ProviderSessionID: replyResult.ProviderSessionID,
+			Status:            state.RunStatusExited,
+			StartedAt:         now,
+			UpdatedAt:         now,
+		}
+		if err := r.store.SaveRun(replyRun); err != nil {
+			return fmt.Errorf("save auto-reply run: %w", err)
+		}
+
+		session.ActiveRunID = replyRunID
 		session.LastRoleUsed = "support"
 		session.ReplyAttemptCount++
-		return r.recordResumeFailure(ctx, chatID, threadID, session, run, err)
+		snap.ReplyAttemptCount = session.ReplyAttemptCount
+		if err := r.store.SaveSnapshot(string(session.ID), snap); err != nil {
+			return fmt.Errorf("save auto-reply snapshot: %w", err)
+		}
+		if err := r.store.SaveSession(*session); err != nil {
+			return fmt.Errorf("save auto-reply session: %w", err)
+		}
+		return r.deliverSessionResult(ctx, chatID, threadID, session, replyRun, replyResult, nil, false)
+	case roles.ActionEscalate:
+		summary := strings.TrimSpace(decision.Reason)
+		if summary == "" {
+			summary = strings.TrimSpace(decision.Message)
+		}
+		return r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateEscalated, summary, true)
+	default:
+		return nil
 	}
-
-	replyRunID := state.RunID(makeID("run"))
-	now := time.Now().UTC()
-	replyRun := state.Run{
-		ID:                replyRunID,
-		SessionID:         session.ID,
-		Provider:          session.Provider,
-		ProviderSessionID: replyResult.ProviderSessionID,
-		Status:            state.RunStatusExited,
-		StartedAt:         now,
-		UpdatedAt:         now,
-	}
-	if err := r.store.SaveRun(replyRun); err != nil {
-		return fmt.Errorf("save auto-reply run: %w", err)
-	}
-
-	session.ActiveRunID = replyRunID
-	session.LastRoleUsed = "support"
-	session.ReplyAttemptCount++
-	if err := r.store.SaveSession(session); err != nil {
-		return fmt.Errorf("save auto-reply session: %w", err)
-	}
-	return r.deliverSessionResult(ctx, chatID, threadID, session, replyRun, replyResult, nil, false)
 }
 
-func (r *Runtime) recordResumeFailure(ctx context.Context, chatID int64, threadID int, session state.Session, previousRun state.Run, resumeErr error) error {
+func (r *Runtime) recordResumeFailure(ctx context.Context, chatID int64, threadID int, session *state.Session, previousRun state.Run, resumeErr error) error {
 	now := time.Now().UTC()
 	failedRun := state.Run{
 		ID:                state.RunID(makeID("run")),
@@ -316,12 +326,66 @@ func (r *Runtime) recordResumeFailure(ctx context.Context, chatID int64, threadI
 	session.Status = state.SessionStatusFailed
 	session.LastBlocker = resumeErr.Error()
 	session.EscalationState = state.EscalationStateNeeded
-	if err := r.store.SaveSession(session); err != nil {
+	snap, err := r.loadSessionSnapshot(*session)
+	if err != nil {
+		return err
+	}
+	snap.Status = string(session.Status)
+	snap.LastBlocker = session.LastBlocker
+	snap.ReplyAttemptCount = session.ReplyAttemptCount
+	snap.ApplySupportDecision(state.SupportStateEscalated, resumeErr.Error(), true)
+	session.ApplySnapshot(snap)
+	if err := r.store.SaveSnapshot(string(session.ID), snap); err != nil {
+		return fmt.Errorf("save failed snapshot: %w", err)
+	}
+	if err := r.store.SaveSession(*session); err != nil {
 		return fmt.Errorf("save failed session: %w", err)
 	}
+	if err := r.upsertSessionHeaderCard(ctx, chatID, threadID, session, true); err != nil {
+		return fmt.Errorf("update failed session header card: %w", err)
+	}
+	if err := r.maybeSendSupportAwareness(ctx, chatID, *session, state.SupportStateEscalated, resumeErr.Error()); err != nil {
+		return fmt.Errorf("send resume escalation awareness: %w", err)
+	}
 
-	if err := r.bot.SendMessage(ctx, chatID, &threadID, "resume failed: "+resumeErr.Error()); err != nil {
+	if err := r.sendSessionMessage(ctx, chatID, threadID, session, "resume failed: "+resumeErr.Error()); err != nil {
 		return fmt.Errorf("send resume failure: %w", err)
+	}
+	return nil
+}
+
+func (r *Runtime) recordStartFailure(ctx context.Context, chatID int64, threadID int, session *state.Session, run state.Run, startErr error) error {
+	run.Status = state.RunStatusFailed
+	run.UpdatedAt = time.Now().UTC()
+	if err := r.store.SaveRun(run); err != nil {
+		return fmt.Errorf("save failed start run: %w", err)
+	}
+
+	session.Status = state.SessionStatusFailed
+	session.LastBlocker = startErr.Error()
+	session.EscalationState = state.EscalationStateNeeded
+	snap, err := r.loadSessionSnapshot(*session)
+	if err != nil {
+		return err
+	}
+	snap.Status = string(session.Status)
+	snap.LastBlocker = session.LastBlocker
+	snap.ApplySupportDecision(state.SupportStateEscalated, startErr.Error(), true)
+	session.ApplySnapshot(snap)
+	if err := r.store.SaveSnapshot(string(session.ID), snap); err != nil {
+		return fmt.Errorf("save failed start snapshot: %w", err)
+	}
+	if err := r.store.SaveSession(*session); err != nil {
+		return fmt.Errorf("save failed start session: %w", err)
+	}
+	if err := r.upsertSessionHeaderCard(ctx, chatID, threadID, session, true); err != nil {
+		return fmt.Errorf("update failed start session header card: %w", err)
+	}
+	if err := r.maybeSendSupportAwareness(ctx, chatID, *session, state.SupportStateEscalated, startErr.Error()); err != nil {
+		return fmt.Errorf("send start escalation awareness: %w", err)
+	}
+	if err := r.sendSessionMessage(ctx, chatID, threadID, session, "start failed: "+startErr.Error()); err != nil {
+		return fmt.Errorf("send start failure: %w", err)
 	}
 	return nil
 }

@@ -2,16 +2,17 @@
 
 Agent instructions for `vibegram`.
 
-`vibegram` is a design-first OSS repo for a Telegram-native control room for vibecoding agents. The repo now has a runnable Go skeleton and several implemented slices, but the repository's source of truth for architecture and plan is still the docs under [`docs/`](/Users/canh/Projects/OSS/vibegram/docs).
+`vibegram` is a design-first OSS repo for a Telegram-native control room for vibecoding agents. The repo now has a runnable Go skeleton and several implemented slices. The repository's source of truth for product behavior and architecture lives in the docs plus the Telegram design system.
 
 ## Start Here
 
 Before changing architecture, product behavior, or implementation plans, read:
 
 1. [`README.md`](/Users/canh/Projects/OSS/vibegram/README.md)
-2. [`docs/decisions.md`](/Users/canh/Projects/OSS/vibegram/docs/decisions.md)
-3. [`docs/architecture.md`](/Users/canh/Projects/OSS/vibegram/docs/architecture.md)
-4. [`docs/runtime-ops.md`](/Users/canh/Projects/OSS/vibegram/docs/runtime-ops.md)
+2. [`DESIGN.md`](/Users/canh/Projects/OSS/vibegram/DESIGN.md)
+3. [`docs/decisions.md`](/Users/canh/Projects/OSS/vibegram/docs/decisions.md)
+4. [`docs/architecture.md`](/Users/canh/Projects/OSS/vibegram/docs/architecture.md)
+5. [`docs/runtime-ops.md`](/Users/canh/Projects/OSS/vibegram/docs/runtime-ops.md)
 
 ## Product Invariants
 

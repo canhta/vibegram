@@ -20,6 +20,7 @@ func TestStoreSaveAndLoadSession(t *testing.T) {
 		Provider:          "codex",
 		GeneralTopicID:    1,
 		SessionTopicID:    42,
+		SessionTopicTitle: "project-x codex 0123",
 		Status:            state.SessionStatusRunning,
 		Phase:             state.SessionPhasePlanning,
 		LastGoal:          "Bootstrap the daemon",
@@ -52,6 +53,9 @@ func TestStoreSaveAndLoadSession(t *testing.T) {
 	}
 	if got.SessionTopicID != 42 {
 		t.Fatalf("SessionTopicID = %d, want 42", got.SessionTopicID)
+	}
+	if got.SessionTopicTitle != "project-x codex 0123" {
+		t.Fatalf("SessionTopicTitle = %q, want %q", got.SessionTopicTitle, "project-x codex 0123")
 	}
 }
 
@@ -101,6 +105,47 @@ func TestStorePersistsSessionUpdatesAcrossRestart(t *testing.T) {
 	}
 	if got.EscalationState != state.EscalationStateNeeded {
 		t.Fatalf("EscalationState = %q, want %q", got.EscalationState, state.EscalationStateNeeded)
+	}
+}
+
+func TestStoreSaveAndLoadSessionPersistsSupportFields(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+
+	session := state.Session{
+		ID:                     "ses_support",
+		ActiveRunID:            "run_support",
+		Provider:               "codex",
+		GeneralTopicID:         1,
+		SessionTopicID:         77,
+		Status:                 state.SessionStatusBlocked,
+		Phase:                  state.SessionPhaseWaiting,
+		SupportState:           state.SupportStateAskHuman,
+		SupportDecisionSummary: "which file should I edit?",
+		HumanActionNeeded:      true,
+		SessionHeaderMessageID: 9021,
+	}
+
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	got, err := store.LoadSession(session.ID)
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+
+	if got.SupportState != state.SupportStateAskHuman {
+		t.Fatalf("SupportState = %q, want %q", got.SupportState, state.SupportStateAskHuman)
+	}
+	if got.SupportDecisionSummary != "which file should I edit?" {
+		t.Fatalf("SupportDecisionSummary = %q, want %q", got.SupportDecisionSummary, "which file should I edit?")
+	}
+	if !got.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+	if got.SessionHeaderMessageID != 9021 {
+		t.Fatalf("SessionHeaderMessageID = %d, want 9021", got.SessionHeaderMessageID)
 	}
 }
 

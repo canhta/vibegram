@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -275,17 +276,20 @@ func TestRuntimeGeneralWizardLaunchAutoRepliesToSafeQuestion(t *testing.T) {
 		t.Fatalf("resumeWorkDir = %q, want %q", codex.resumeWorkDir, projectX)
 	}
 	sent := bot.sentSnapshot()
-	if sent[len(sent)-4].text != "Tool: shell — go test ./..." {
-		t.Fatalf("tool message = %q", sent[len(sent)-4].text)
+	if !hasSentText(sent, "Tool: shell — go test ./...") {
+		t.Fatalf("sent messages = %+v, want tool message", sent)
 	}
-	if sent[len(sent)-3].text != "Question: Which test framework should I use?" {
-		t.Fatalf("question message = %q", sent[len(sent)-3].text)
+	if !hasSentText(sent, "Question: Which test framework should I use?") {
+		t.Fatalf("sent messages = %+v, want question message", sent)
 	}
-	if sent[len(sent)-2].text != "Agent reply: Use Go's standard library testing package." {
-		t.Fatalf("agent reply note = %q", sent[len(sent)-2].text)
+	if !hasSentContaining(sent, "Support replied in project-x codex ") || !hasSentContaining(sent, "Use Go's standard library testing package.") {
+		t.Fatalf("sent messages = %+v, want General support awareness", sent)
 	}
-	if sent[len(sent)-1].text != "I'll use the Go standard library testing package." {
-		t.Fatalf("follow-up message = %q", sent[len(sent)-1].text)
+	if !hasSentText(sent, "Agent reply: Use Go's standard library testing package.") {
+		t.Fatalf("sent messages = %+v, want agent reply note", sent)
+	}
+	if !hasSentText(sent, "I'll use the Go standard library testing package.") {
+		t.Fatalf("sent messages = %+v, want follow-up message", sent)
 	}
 }
 
@@ -358,6 +362,222 @@ func TestRuntimeGeneralWizardLaunchRendersFilteredCodexEvents(t *testing.T) {
 	}
 	if hasSentText(sent, "Question: Some of what we're working on might be easier to explain if I can show it to you in a web browser. Want to try it? (Requires opening a local URL)") {
 		t.Fatal("browser-offer noise should not be rendered")
+	}
+}
+
+func TestRuntimeGeneralWizardLaunchUpdatesSessionHeaderCardFromSupportProjection(t *testing.T) {
+	projectRoot := t.TempDir()
+	projectX := filepath.Join(projectRoot, "project-x")
+	if err := os.Mkdir(projectX, 0o755); err != nil {
+		t.Fatalf("Mkdir(project-x) error = %v", err)
+	}
+
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := store.SaveSession(state.Session{
+		ID:             "ses_prior",
+		OwnerUserID:    1001,
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		WorkRoot:       projectX,
+		Status:         state.SessionStatusDone,
+		Phase:          state.SessionPhaseWaiting,
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{nextThreadID: 42}
+	codex := &fakeCodexSessionRunner{
+		startResult: codexprovider.SessionResult{
+			ProviderSessionID: "thread-123",
+			Message:           "Which file should I edit?",
+			RawOutput: strings.Join([]string{
+				`{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Which file should I edit?"}}`,
+			}, "\n"),
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Providers: config.ProviderConfig{
+				CodexCommand: "/usr/local/bin/codex",
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+
+	runGeneralWizardToTaskEntryPrompt(t, rt, bot, 1001)
+	sendTaskFromGeneral(t, rt, 1001, "choose file")
+
+	rt.Wait()
+
+	sessions, err := store.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions() error = %v", err)
+	}
+	var session state.Session
+	for _, candidate := range sessions {
+		if candidate.ID != "ses_prior" {
+			session = candidate
+			break
+		}
+	}
+	if session.ID == "" {
+		t.Fatal("launched session was not persisted")
+	}
+	if session.SupportState != state.SupportStateAskHuman {
+		t.Fatalf("SupportState = %q, want %q", session.SupportState, state.SupportStateAskHuman)
+	}
+	if session.SupportDecisionSummary != "Which file should I edit?" {
+		t.Fatalf("SupportDecisionSummary = %q, want %q", session.SupportDecisionSummary, "Which file should I edit?")
+	}
+	if !session.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+	if session.SessionHeaderMessageID == 0 {
+		t.Fatal("SessionHeaderMessageID = 0, want a persistent header card")
+	}
+
+	sent := bot.sentSnapshot()
+	headerFound := false
+	for _, msg := range sent {
+		if msg.markup == nil {
+			continue
+		}
+		if strings.Contains(msg.text, "Support: idle") && strings.Contains(msg.text, "Human action: no") {
+			headerFound = true
+			break
+		}
+	}
+	if !headerFound {
+		t.Fatalf("sent messages did not include the initial session header card: %+v", sent)
+	}
+
+	edited := bot.editedSnapshot()
+	if len(edited) == 0 {
+		t.Fatal("editedSnapshot() = 0, want header card update")
+	}
+	if !strings.Contains(edited[len(edited)-1].text, "Support: ask human") {
+		t.Fatalf("edited header card = %q, want support state", edited[len(edited)-1].text)
+	}
+	if !strings.Contains(edited[len(edited)-1].text, "Human action: yes") {
+		t.Fatalf("edited header card = %q, want human action flag", edited[len(edited)-1].text)
+	}
+}
+
+func TestRuntimeGeneralWizardLaunchMarksHeaderFailedWhenStartFails(t *testing.T) {
+	projectRoot := t.TempDir()
+	projectX := filepath.Join(projectRoot, "project-x")
+	if err := os.Mkdir(projectX, 0o755); err != nil {
+		t.Fatalf("Mkdir(project-x) error = %v", err)
+	}
+
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := store.SaveSession(state.Session{
+		ID:             "ses_prior",
+		OwnerUserID:    1001,
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		WorkRoot:       projectX,
+		Status:         state.SessionStatusDone,
+		Phase:          state.SessionPhaseWaiting,
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{nextThreadID: 42}
+	codex := &fakeCodexSessionRunner{
+		startErr: errors.New("provider offline"),
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Providers: config.ProviderConfig{
+				CodexCommand: "/usr/local/bin/codex",
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+
+	runGeneralWizardToTaskEntryPrompt(t, rt, bot, 1001)
+	sendTaskFromGeneral(t, rt, 1001, "finish setup")
+
+	rt.Wait()
+
+	sessions, err := store.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions() error = %v", err)
+	}
+	var session state.Session
+	for _, candidate := range sessions {
+		if candidate.ID != "ses_prior" {
+			session = candidate
+			break
+		}
+	}
+	if session.ID == "" {
+		t.Fatal("launched session was not persisted")
+	}
+	if session.Status != state.SessionStatusFailed {
+		t.Fatalf("Status = %q, want %q", session.Status, state.SessionStatusFailed)
+	}
+	if session.SupportState != state.SupportStateEscalated {
+		t.Fatalf("SupportState = %q, want %q", session.SupportState, state.SupportStateEscalated)
+	}
+	if session.SupportDecisionSummary != "provider offline" {
+		t.Fatalf("SupportDecisionSummary = %q, want %q", session.SupportDecisionSummary, "provider offline")
+	}
+	if !session.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+
+	edited := bot.editedSnapshot()
+	if len(edited) == 0 {
+		t.Fatal("editedSnapshot() = 0, want header card update")
+	}
+	last := edited[len(edited)-1].text
+	if !strings.Contains(last, "State: failed / planning") {
+		t.Fatalf("edited header card = %q, want failed state", last)
+	}
+	if !strings.Contains(last, "Support: escalated") {
+		t.Fatalf("edited header card = %q, want escalated support state", last)
+	}
+	if !strings.Contains(last, "Support decision: provider offline") {
+		t.Fatalf("edited header card = %q, want failure reason", last)
+	}
+	if !strings.Contains(last, "Human action: yes") {
+		t.Fatalf("edited header card = %q, want human action flag", last)
+	}
+
+	sent := bot.sentSnapshot()
+	if !hasSentText(sent, "start failed: provider offline") {
+		t.Fatalf("sent messages = %+v, want start failure message", sent)
+	}
+	if !hasSentContaining(sent, "Support escalated in project-x codex ") || !hasSentText(sent, "start failed: provider offline") {
+		t.Fatalf("sent messages = %+v, want General escalation awareness", sent)
 	}
 }
 
@@ -742,6 +962,15 @@ func runGeneralWizardToChosenProviderTaskEntry(t *testing.T, rt *Runtime, bot *f
 func hasSentText(messages []sentMessage, want string) bool {
 	for _, message := range messages {
 		if message.text == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSentContaining(messages []sentMessage, want string) bool {
+	for _, message := range messages {
+		if strings.Contains(message.text, want) {
 			return true
 		}
 	}

@@ -161,6 +161,12 @@ func (r *Runtime) cleanupTargets() ([]cleanupTarget, error) {
 
 func cleanupLabel(threadID int, sessions []state.Session) string {
 	for _, session := range sessions {
+		if title := strings.TrimSpace(session.SessionTopicTitle); title != "" {
+			return title
+		}
+		if title := derivedTopicTitle(session); title != "" {
+			return title
+		}
 		base := strings.TrimSpace(filepath.Base(session.WorkRoot))
 		if base != "" && base != "." && base != "/" {
 			return base
@@ -169,10 +175,21 @@ func cleanupLabel(threadID int, sessions []state.Session) string {
 	return fmt.Sprintf("Topic %d", threadID)
 }
 
+func derivedTopicTitle(session state.Session) string {
+	if strings.TrimSpace(session.WorkRoot) == "" || strings.TrimSpace(session.Provider) == "" || strings.TrimSpace(string(session.ID)) == "" {
+		return ""
+	}
+	return topicNameForDraft(generalDraft{
+		Provider: session.Provider,
+		WorkRoot: session.WorkRoot,
+	}, shortTopicCode(session.ID))
+}
+
 func isNotFound(err error) bool {
 	return errors.Is(err, state.ErrNotFound)
 }
 
 func isTopicGoneError(err error) bool {
-	return strings.Contains(err.Error(), "TOPIC_ID_INVALID")
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "topic_id_invalid") || strings.Contains(text, "message thread not found")
 }

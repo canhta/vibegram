@@ -9,6 +9,13 @@ Run Codex and Claude Code from Telegram without drowning in terminal spam.
 - filtered, human-readable updates instead of raw transcript noise
 - local-first daemon, good for your laptop or a small Ubuntu VPS
 
+Interaction style should feel Telegram-native in the BotFather sense:
+
+- command-first
+- concise
+- explicit about state
+- button-led when the next move is safe
+
 ## Why people want this
 
 Most agent workflows leak too much implementation detail into the human loop.
@@ -134,11 +141,12 @@ go run ./cmd/vibegram
 
 ## Docs
 
-The repo now keeps only 3 source-of-truth docs:
+The repo now keeps these source-of-truth docs:
 
 - [Locked Decisions](./docs/decisions.md)
 - [Architecture](./docs/architecture.md)
 - [Runtime and Ops](./docs/runtime-ops.md)
+- [Telegram Design System](./DESIGN.md)
 
 ## Contributing
 

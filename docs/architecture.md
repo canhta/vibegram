@@ -17,6 +17,14 @@ The human should not babysit raw terminal output.
 - session topics are where an active Codex or Claude run lives
 - the daemon turns noisy provider activity into a small set of readable Telegram updates
 
+Interaction design should feel BotFather-native:
+
+- command-first
+- concise
+- explicit about state
+- button-led when the next move is safe
+- free of transcript-style chatter
+
 Non-goals for v1:
 
 - terminal-mirror UX
@@ -56,8 +64,10 @@ What belongs there:
 - `/new`
 - `/status`
 - `/cleanup`
+- one persistent control card summarizing attention, counts, and recent support decisions
 - session creation
 - concise awareness posts for new session, needs human or unblock requested, blocker resolved, done, failed, and critical escalation
+- support decision summaries when support replies or escalates
 
 What does not belong there:
 
@@ -80,6 +90,7 @@ A session topic is durable even if the provider process changes underneath it.
 
 What belongs in a session topic:
 
+- one persistent session header card with the goal, current state, support state, and latest support decision
 - task progress that matters
 - support exchange for that session
 - detailed blocker context
@@ -163,7 +174,10 @@ OpenAI-compatible inference helps with bounded role execution, but is not the sy
 When in doubt, prefer:
 
 - fewer visible messages
+- BotFather-like clarity over conversational filler
 - durable topic identity
 - app-owned state over provider-owned state
 - systemd over terminal tricks
 - simple boring flows over clever UX layers
+
+See [DESIGN.md](../DESIGN.md) for the Telegram-first design system.
