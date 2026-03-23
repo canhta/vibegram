@@ -116,43 +116,48 @@ func (r *Runtime) generalControlCardText() (string, telegram.InlineKeyboardMarku
 		"",
 	}
 	for i, entry := range entries {
-		lines = append(lines, fmt.Sprintf("%d. %s | %s | %s", i+1, entry.title, entry.provider, entry.status))
+		lines = append(lines, fmt.Sprintf("%d. %s | %s | %s",
+			i+1,
+			telegram.TruncateText(entry.title, 72),
+			telegram.TruncateText(entry.provider, 24),
+			telegram.TruncateText(entry.status, 24),
+		))
 		if entry.phase != "" {
-			lines = append(lines, "   Phase: "+entry.phase)
+			lines = append(lines, "   Phase: "+telegram.TruncateText(entry.phase, 48))
 		}
 		if entry.humanAction {
 			lines = append(lines, "   Needs you now: yes")
 		}
 		if entry.supportState != "" && entry.supportState != string(state.SupportStateIdle) {
-			lines = append(lines, "   Support: "+entry.supportState)
+			lines = append(lines, "   Support: "+telegram.TruncateText(entry.supportState, 24))
 		}
 		if entry.supportDecision != "" {
-			lines = append(lines, "   Decision: "+entry.supportDecision)
+			lines = append(lines, "   Decision: "+telegram.TruncateText(entry.supportDecision, 160))
 		}
 		if entry.goal != "" {
-			lines = append(lines, "   Goal: "+entry.goal)
+			lines = append(lines, "   Goal: "+telegram.TruncateText(entry.goal, 160))
 		}
 		if entry.blocker != "" {
-			lines = append(lines, "   Blocker: "+entry.blocker)
+			lines = append(lines, "   Blocker: "+telegram.TruncateText(entry.blocker, 160))
 		}
 		if entry.question != "" {
-			lines = append(lines, "   Question: "+entry.question)
+			lines = append(lines, "   Question: "+telegram.TruncateText(entry.question, 160))
 		}
 		if entry.files != "" {
-			lines = append(lines, "   Files: "+entry.files)
+			lines = append(lines, "   Files: "+telegram.TruncateText(entry.files, 160))
 		}
 		if entry.tests != "" {
-			lines = append(lines, "   Tests: "+entry.tests)
+			lines = append(lines, "   Tests: "+telegram.TruncateText(entry.tests, 160))
 		}
 		if entry.escalation != "" && entry.escalation != string(state.EscalationStateNone) {
-			lines = append(lines, "   Escalation: "+entry.escalation)
+			lines = append(lines, "   Escalation: "+telegram.TruncateText(entry.escalation, 32))
 		}
 		if i < len(entries)-1 {
 			lines = append(lines, "")
 		}
 	}
 
-	return strings.Join(lines, "\n"), telegram.InlineKeyboardMarkup{}, nil
+	return telegram.ClampMessageText(strings.Join(lines, "\n")), telegram.InlineKeyboardMarkup{}, nil
 }
 
 func (r *Runtime) generalControlCardSession(session state.Session) (generalControlCardSession, bool, error) {

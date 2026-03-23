@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/canhta/vibegram/internal/events"
 )
@@ -14,9 +15,7 @@ const (
 func Render(event events.NormalizedEvent) string {
 	summary := event.Summary
 	limit := summaryLimit(event.EventType)
-	if len(summary) > limit {
-		summary = summary[:limit] + "..."
-	}
+	summary = TruncateText(summary, limit)
 
 	var text string
 	switch event.EventType {
@@ -46,10 +45,7 @@ func Render(event events.NormalizedEvent) string {
 		text = summary
 	}
 
-	if len(text) > maxMessageLen {
-		text = text[:maxMessageLen]
-	}
-	return text
+	return ClampMessageText(text)
 }
 
 func summaryLimit(eventType events.EventType) int {
@@ -57,4 +53,24 @@ func summaryLimit(eventType events.EventType) int {
 		return maxMessageLen
 	}
 	return maxSummaryLen
+}
+
+func ClampMessageText(text string) string {
+	return TruncateText(text, maxMessageLen)
+}
+
+func TruncateText(text string, max int) string {
+	text = strings.TrimSpace(text)
+	if max <= 0 || text == "" {
+		return ""
+	}
+
+	runes := []rune(text)
+	if len(runes) <= max {
+		return text
+	}
+	if max <= 3 {
+		return string(runes[:max])
+	}
+	return string(runes[:max-3]) + "..."
 }

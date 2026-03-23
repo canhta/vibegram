@@ -5,7 +5,7 @@ import "context"
 func (c *Client) SendMessage(ctx context.Context, chatID int64, threadID *int, text string) error {
 	body := map[string]any{
 		"chat_id": chatID,
-		"text":    text,
+		"text":    ClampMessageText(text),
 	}
 	if threadID != nil {
 		body["message_thread_id"] = *threadID
@@ -25,7 +25,7 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, threadID *int, t
 func (c *Client) SendMessageCard(ctx context.Context, chatID int64, threadID *int, text string, markup InlineKeyboardMarkup) (int, error) {
 	body := map[string]any{
 		"chat_id":      chatID,
-		"text":         text,
+		"text":         ClampMessageText(text),
 		"reply_markup": normalizeReplyMarkup(markup),
 	}
 	if threadID != nil {
@@ -53,7 +53,7 @@ func (c *Client) EditMessageCard(ctx context.Context, chatID int64, messageID in
 	req, err := c.newJSONRequest(ctx, "/editMessageText", map[string]any{
 		"chat_id":      chatID,
 		"message_id":   messageID,
-		"text":         text,
+		"text":         ClampMessageText(text),
 		"reply_markup": normalizeReplyMarkup(markup),
 	})
 	if err != nil {

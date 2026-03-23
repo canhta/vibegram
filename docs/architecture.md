@@ -140,6 +140,17 @@ The daemon reduces provider output into a small set of meaningful Telegram-visib
 
 Read-only exploration noise should stay hidden by default.
 
+## Support cost stance
+
+The support and policy layer should stay deterministic-first and cost-bounded:
+
+- obvious General-topic guidance should be answered without an LLM call when safe
+- repeated blocker or question events should not re-trigger the same support decision
+- risky blocker or question events should escalate directly instead of asking a cheap model to rediscover that they are risky
+- the default support model should be small and cheap
+- a stronger fallback model may be used for higher-ambiguity support work
+- support auto-replies should be budgeted so one stuck session cannot trigger unbounded extra provider turns
+
 ## State model
 
 The daemon owns app state locally.

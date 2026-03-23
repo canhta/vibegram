@@ -1588,6 +1588,118 @@ func TestRuntimeHandleGeneralStatusIncludesFailedEscalatedSessionNeedingHumanAct
 	}
 }
 
+func TestGeneralControlCardTextTruncatesLongSessionDetails(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	longGoal := strings.Repeat("ship the release safely ", 220)
+	longBlocker := strings.Repeat("telegram says message is too long ", 180)
+	longQuestion := strings.Repeat("should we cut the release now ", 180)
+	longDecision := strings.Repeat("support says keep the control room readable ", 180)
+	longFiles := strings.Repeat("internal/app/runtime_control_card.go ", 120)
+	longTests := strings.Repeat("go test ./... ", 220)
+
+	session := state.Session{
+		ID:                     "ses_long",
+		ActiveRunID:            "run_long",
+		Provider:               "codex",
+		GeneralTopicID:         1,
+		SessionTopicID:         99,
+		SessionTopicTitle:      "Project control room",
+		Status:                 state.SessionStatusBlocked,
+		Phase:                  state.SessionPhaseRunningTests,
+		LastGoal:               longGoal,
+		LastBlocker:            longBlocker,
+		LastQuestion:           longQuestion,
+		RecentFilesSummary:     longFiles,
+		RecentTestsSummary:     longTests,
+		SupportState:           state.SupportStateAskHuman,
+		SupportDecisionSummary: longDecision,
+		HumanActionNeeded:      true,
+		EscalationState:        state.EscalationStateNeeded,
+		WorkRoot:               "/tmp/project-control-room",
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		&fakeBotClient{},
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	text, _, err := rt.generalControlCardText()
+	if err != nil {
+		t.Fatalf("generalControlCardText() error = %v", err)
+	}
+
+	if len(text) > 4096 {
+		t.Fatalf("len(control card text) = %d, want <= 4096", len(text))
+	}
+	if !strings.Contains(text, "General control room") {
+		t.Fatalf("control card text = %q, want title", text)
+	}
+	if !strings.Contains(text, "Needs you now: 1") {
+		t.Fatalf("control card text = %q, want attention summary", text)
+	}
+	if !strings.Contains(text, "Project control room | codex | blocked") {
+		t.Fatalf("control card text = %q, want session summary", text)
+	}
+	if !strings.Contains(text, "Support: ask human") {
+		t.Fatalf("control card text = %q, want support state", text)
+	}
+	if !strings.Contains(text, "Decision: ") {
+		t.Fatalf("control card text = %q, want support decision line", text)
+	}
+	if !strings.Contains(text, "...") {
+		t.Fatalf("control card text = %q, want visible truncation marker", text)
+	}
+}
+
+func TestRenderSessionHeaderCardTruncatesLongFields(t *testing.T) {
+	text := renderSessionHeaderCard(state.Session{
+		Provider:               "codex",
+		WorkRoot:               "/tmp/" + strings.Repeat("deep-folder-", 60),
+		LastGoal:               strings.Repeat("finish the calm delegation polish ", 180),
+		Status:                 state.SessionStatusBlocked,
+		Phase:                  state.SessionPhaseRunningTests,
+		SupportState:           state.SupportStateEscalated,
+		SupportDecisionSummary: strings.Repeat("ask the human to confirm the reinstall path ", 180),
+		HumanActionNeeded:      true,
+	})
+
+	if len(text) > 4096 {
+		t.Fatalf("len(session header text) = %d, want <= 4096", len(text))
+	}
+	if !strings.Contains(text, "Agent: codex") {
+		t.Fatalf("session header text = %q, want agent line", text)
+	}
+	if !strings.Contains(text, "State: blocked / running_tests") {
+		t.Fatalf("session header text = %q, want state line", text)
+	}
+	if !strings.Contains(text, "Support: escalated") {
+		t.Fatalf("session header text = %q, want support state line", text)
+	}
+	if !strings.Contains(text, "Human action: yes") {
+		t.Fatalf("session header text = %q, want human action line", text)
+	}
+	if !strings.Contains(text, "...") {
+		t.Fatalf("session header text = %q, want visible truncation marker", text)
+	}
+}
+
 func TestRuntimeApplySupportDecisionCreatesHeaderRefreshesGeneralCardAndPostsAwareness(t *testing.T) {
 	store := state.NewStore(t.TempDir())
 	if err := store.Init(); err != nil {

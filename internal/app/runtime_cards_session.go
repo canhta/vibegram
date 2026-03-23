@@ -124,15 +124,15 @@ func (r *Runtime) upsertSessionHeaderCard(ctx context.Context, chatID int64, thr
 
 func renderSessionHeaderCard(session state.Session) string {
 	lines := []string{
-		fmt.Sprintf("Agent: %s", sessionOrUnknown(session.Provider, "agent")),
-		fmt.Sprintf("Folder: %s", sessionFolderLabel(session.WorkRoot)),
-		fmt.Sprintf("Goal: %s", sessionOrUnknown(session.LastGoal, "none")),
-		fmt.Sprintf("State: %s", sessionStateLabel(session)),
-		fmt.Sprintf("Support: %s", supportStateLabel(session.SupportState)),
-		fmt.Sprintf("Support decision: %s", sessionOrUnknown(session.SupportDecisionSummary, "none")),
+		fmt.Sprintf("Agent: %s", telegram.TruncateText(sessionOrUnknown(session.Provider, "agent"), 32)),
+		fmt.Sprintf("Folder: %s", telegram.TruncateText(sessionFolderLabel(session.WorkRoot), 96)),
+		fmt.Sprintf("Goal: %s", telegram.TruncateText(sessionOrUnknown(session.LastGoal, "none"), 320)),
+		fmt.Sprintf("State: %s", telegram.TruncateText(sessionStateLabel(session), 64)),
+		fmt.Sprintf("Support: %s", telegram.TruncateText(supportStateLabel(session.SupportState), 32)),
+		fmt.Sprintf("Support decision: %s", telegram.TruncateText(sessionOrUnknown(session.SupportDecisionSummary, "none"), 320)),
 		fmt.Sprintf("Human action: %s", yesNo(session.HumanActionNeeded)),
 	}
-	return strings.Join(lines, "\n")
+	return telegram.ClampMessageText(strings.Join(lines, "\n"))
 }
 
 func sessionStateLabel(session state.Session) string {

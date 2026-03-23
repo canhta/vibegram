@@ -122,6 +122,13 @@ The latest support decision should be shown in the session header card.
 `General` should receive support awareness only for meaningful decisions.
 Those awareness items should use action-plus-rationale summaries, not raw quoted transcript.
 
+Support should also be cost-aware:
+
+- do not spend a model call on obvious slash-command guidance
+- do not spend repeated model calls on the same blocker/question state
+- prefer direct escalation over model consultation for clearly risky situations
+- keep automatic support replies budgeted so one session cannot monopolize inference spend
+
 Example:
 
 ```text

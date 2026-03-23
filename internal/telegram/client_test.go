@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -114,6 +115,44 @@ func TestClientSendMessageUsesThreadIDWhenProvided(t *testing.T) {
 	}
 }
 
+func TestClientSendMessageTruncatesLongText(t *testing.T) {
+	longText := strings.Repeat("control room status ", 300)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+
+		text, ok := body["text"].(string)
+		if !ok {
+			t.Fatalf("text = %T, want string", body["text"])
+		}
+		if len(text) > 4096 {
+			t.Fatalf("len(text) = %d, want <= 4096", len(text))
+		}
+		if !strings.HasPrefix(text, "control room status ") {
+			prefix := text
+			if len(prefix) > 40 {
+				prefix = prefix[:40]
+			}
+			t.Fatalf("text prefix = %q, want original content", prefix)
+		}
+		if !strings.HasSuffix(text, "...") {
+			t.Fatalf("text suffix = %q, want truncation marker", text[len(text)-3:])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":99}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token", server.URL)
+	if err := client.SendMessage(context.Background(), -100123, nil, longText); err != nil {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+}
+
 func TestClientSendMessageCardReturnsMessageID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottest-token/sendMessage" {
@@ -194,6 +233,48 @@ func TestClientEditMessageCardUsesReplyMarkup(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("EditMessageCard() error = %v", err)
+	}
+}
+
+func TestClientSendMessageCardTruncatesLongText(t *testing.T) {
+	longText := strings.Repeat("session header detail ", 260)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+
+		text, ok := body["text"].(string)
+		if !ok {
+			t.Fatalf("text = %T, want string", body["text"])
+		}
+		if len(text) > 4096 {
+			t.Fatalf("len(text) = %d, want <= 4096", len(text))
+		}
+		if !strings.HasPrefix(text, "session header detail ") {
+			prefix := text
+			if len(prefix) > 40 {
+				prefix = prefix[:40]
+			}
+			t.Fatalf("text prefix = %q, want original content", prefix)
+		}
+		if !strings.HasSuffix(text, "...") {
+			t.Fatalf("text suffix = %q, want truncation marker", text[len(text)-3:])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":77}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token", server.URL)
+	messageID, err := client.SendMessageCard(context.Background(), -100123, nil, longText, InlineKeyboardMarkup{})
+	if err != nil {
+		t.Fatalf("SendMessageCard() error = %v", err)
+	}
+	if messageID != 77 {
+		t.Fatalf("messageID = %d, want 77", messageID)
 	}
 }
 

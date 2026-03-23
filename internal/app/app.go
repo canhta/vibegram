@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/canhta/vibegram/internal/config"
@@ -40,8 +41,12 @@ func New(cfg config.Config) (*App, error) {
 	var support supportResponder
 	if cfg.OpenAI.APIKey != "" {
 		caller := roles.NewOpenAICaller(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.BaseURL)
-		engine = policy.NewEngine(roles.NewExecutor(caller))
-		support = roles.NewSupportResponder(caller)
+		var strongCaller roles.Caller
+		if strongModel := strings.TrimSpace(cfg.OpenAI.StrongModel); strongModel != "" && strongModel != cfg.OpenAI.Model {
+			strongCaller = roles.NewOpenAICaller(cfg.OpenAI.APIKey, strongModel, cfg.OpenAI.BaseURL)
+		}
+		engine = policy.NewEngine(roles.NewExecutor(caller, strongCaller))
+		support = roles.NewSupportResponder(caller, strongCaller)
 	}
 
 	return &App{

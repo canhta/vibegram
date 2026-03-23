@@ -171,3 +171,62 @@ func TestPolicyBlockerResolvedIsNoop(t *testing.T) {
 		t.Error("expected executor NOT to be called for blocker_resolved")
 	}
 }
+
+func TestPolicyQuestionEscalatesWhenAutoReplyBudgetIsExhausted(t *testing.T) {
+	exec := &mockExecutor{decision: roles.Decision{Action: roles.ActionReply, Message: "try this"}}
+	engine := NewEngine(exec)
+	snap := makeSnap(2)
+
+	d, err := engine.Evaluate(context.Background(), snap, makeEvent(events.EventTypeQuestion))
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if d.Action != roles.ActionEscalate {
+		t.Fatalf("expected ActionEscalate when reply budget is exhausted, got %v", d.Action)
+	}
+	if exec.called {
+		t.Fatal("expected executor NOT to be called after budget is exhausted")
+	}
+}
+
+func TestPolicyQuestionSkipsRepeatedSummary(t *testing.T) {
+	exec := &mockExecutor{decision: roles.Decision{Action: roles.ActionReply, Message: "use testify"}}
+	engine := NewEngine(exec)
+	snap := makeSnap(1)
+	snap.LastQuestion = "which test package should I use?"
+	snap.RecentEvents = []string{
+		"which test package should I use?",
+		"which test package should I use?",
+	}
+
+	event := makeEvent(events.EventTypeQuestion)
+	event.Summary = "which test package should I use?"
+	d, err := engine.Evaluate(context.Background(), snap, event)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if d.Action != roles.ActionNoop {
+		t.Fatalf("expected ActionNoop for repeated question, got %v", d.Action)
+	}
+	if exec.called {
+		t.Fatal("expected executor NOT to be called for repeated question")
+	}
+}
+
+func TestPolicyRiskyBlockedSummaryEscalatesWithoutExecutor(t *testing.T) {
+	exec := &mockExecutor{decision: roles.Decision{Action: roles.ActionReply, Message: "go ahead"}}
+	engine := NewEngine(exec)
+	event := makeEvent(events.EventTypeBlocked)
+	event.Summary = "Should I use the production API token on the VPS?"
+
+	d, err := engine.Evaluate(context.Background(), makeSnap(0), event)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if d.Action != roles.ActionEscalate {
+		t.Fatalf("expected ActionEscalate for risky summary, got %v", d.Action)
+	}
+	if exec.called {
+		t.Fatal("expected executor NOT to be called for risky summary")
+	}
+}

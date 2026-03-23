@@ -15,6 +15,7 @@ func TestLoadFromEnvParsesOpenAIBaseURLAndTelegramRoleIDs(t *testing.T) {
 	t.Setenv("VIBEGRAM_TELEGRAM_ADMIN_IDS", "1001,1002")
 	t.Setenv("VIBEGRAM_TELEGRAM_OPERATOR_IDS", "2001,2002")
 	t.Setenv("VIBEGRAM_OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("VIBEGRAM_OPENAI_STRONG_MODEL", "gpt-5")
 
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
@@ -23,6 +24,12 @@ func TestLoadFromEnvParsesOpenAIBaseURLAndTelegramRoleIDs(t *testing.T) {
 
 	if cfg.OpenAI.BaseURL != "https://example.test/v1" {
 		t.Fatalf("BaseURL = %q, want %q", cfg.OpenAI.BaseURL, "https://example.test/v1")
+	}
+	if cfg.OpenAI.Model != "gpt-5-mini" {
+		t.Fatalf("Model = %q, want %q", cfg.OpenAI.Model, "gpt-5-mini")
+	}
+	if cfg.OpenAI.StrongModel != "gpt-5" {
+		t.Fatalf("StrongModel = %q, want %q", cfg.OpenAI.StrongModel, "gpt-5")
 	}
 
 	if !reflect.DeepEqual(cfg.Telegram.AdminIDs, []int64{1001, 1002}) {

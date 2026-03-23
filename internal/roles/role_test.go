@@ -3,6 +3,7 @@ package roles
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,9 +14,11 @@ import (
 type mockCaller struct {
 	response string
 	err      error
+	calls    int
 }
 
 func (m *mockCaller) Call(ctx context.Context, prompt string) (string, error) {
+	m.calls++
 	if m.err != nil {
 		return "", m.err
 	}
@@ -119,5 +122,25 @@ func TestRoleExecutorContextCancelled(t *testing.T) {
 	}
 	if d.Action != ActionNoop {
 		t.Errorf("expected ActionNoop on cancelled context, got %v", d.Action)
+	}
+}
+
+func TestRoleExecutorUsesStrongCallerForLongQuestion(t *testing.T) {
+	cheap := &mockCaller{response: `{"action":"reply","message":"cheap"}`}
+	strong := &mockCaller{response: `{"action":"reply","message":"strong"}`}
+	e := NewExecutor(cheap, strong)
+
+	d, err := e.Decide(context.Background(), makeSnap(), makeEvent(events.EventTypeQuestion, strings.Repeat("long architecture question ", 20)))
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	if d.Action != ActionReply || d.Message != "strong" {
+		t.Fatalf("decision = %+v, want strong reply", d)
+	}
+	if cheap.calls != 0 {
+		t.Fatalf("cheap caller calls = %d, want 0", cheap.calls)
+	}
+	if strong.calls != 1 {
+		t.Fatalf("strong caller calls = %d, want 1", strong.calls)
 	}
 }

@@ -87,6 +87,7 @@ What works now:
 - `General` commands like `/new`, `/status`, and `/cleanup`
 - Codex and Claude session launching
 - filtered session output
+- deterministic-first support routing to keep LLM spend bounded
 - Ubuntu `systemd` install path
 - GitHub release builds for Linux and macOS
 
@@ -138,6 +139,16 @@ sudo vibegram upgrade --version v0.1.1
 ```bash
 go run ./cmd/vibegram
 ```
+
+## LLM Cost Stance
+
+The support layer is intentionally cheaper than the coding agents it supervises:
+
+- deterministic shortcuts handle obvious `/new`, `/status`, and `/cleanup` guidance
+- repeated or risky blocker/question events escalate without another model call
+- the default support model is `gpt-5-mini`
+- `VIBEGRAM_OPENAI_STRONG_MODEL` can be used as a fallback for higher-ambiguity support work
+- support auto-replies are budgeted so the daemon does not keep buying extra agent turns forever
 
 ## Docs
 

@@ -26,15 +26,24 @@ Behavior:
 - Reply in plain text only, with a concise launch brief.`
 
 type SupportResponder struct {
-	caller Caller
-	rules  string
+	caller       Caller
+	strongCaller Caller
+	rules        string
 }
 
-func NewSupportResponder(caller Caller) *SupportResponder {
-	return &SupportResponder{caller: caller, rules: supportChatRules}
+func NewSupportResponder(caller Caller, strongCaller ...Caller) *SupportResponder {
+	var strong Caller
+	if len(strongCaller) > 0 {
+		strong = strongCaller[0]
+	}
+	return &SupportResponder{caller: caller, strongCaller: strong, rules: supportChatRules}
 }
 
 func (r *SupportResponder) Reply(ctx context.Context, text string) (string, error) {
+	if reply, ok := deterministicGeneralReply(text); ok {
+		return reply, nil
+	}
+
 	prompt := fmt.Sprintf(`SYSTEM
 %s
 
@@ -61,9 +70,28 @@ USER
 TASK
 Return only the final launch brief.`, supportValidationRules, text)
 
-	reply, err := r.caller.Call(ctx, prompt)
+	caller := r.caller
+	if r.strongCaller != nil {
+		caller = r.strongCaller
+	}
+
+	reply, err := caller.Call(ctx, prompt)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(reply), nil
+}
+
+func deterministicGeneralReply(text string) (string, bool) {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	switch {
+	case strings.Contains(lower, "new session"), strings.Contains(lower, "start a session"), strings.Contains(lower, "create a session"):
+		return "Use /new to start a new session.", true
+	case strings.Contains(lower, "status"), strings.Contains(lower, "what is running"), strings.Contains(lower, "what's running"):
+		return "Use /status to see the control room.", true
+	case strings.Contains(lower, "cleanup"), strings.Contains(lower, "delete topic"), strings.Contains(lower, "remove topic"):
+		return "Use /cleanup to choose session topics to delete.", true
+	default:
+		return "", false
+	}
 }

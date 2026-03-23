@@ -86,9 +86,18 @@ Expected config:
 - `VIBEGRAM_PROVIDER_CODEX_CMD`
 - `VIBEGRAM_PROVIDER_CLAUDE_CMD`
 - optional OpenAI-compatible API settings
+  - `VIBEGRAM_OPENAI_MODEL` defaults to `gpt-5-mini` for the support layer
+  - `VIBEGRAM_OPENAI_STRONG_MODEL` defaults to `gpt-5` and is used only for higher-ambiguity support work
 - work root
 - state dir
 - log level
+
+Support-cost defaults should stay boring:
+
+- obvious General-topic help should be deterministic when possible
+- repeated blocker/question summaries should not trigger fresh support calls
+- risky support situations should escalate directly
+- auto-replies should stay budgeted so one stuck session cannot cause unbounded extra provider resumes
 
 If Codex or the support role is pointed at an OpenAI-compatible reverse proxy, that proxy must allow Responses API request bodies larger than the nginx default.
 For nginx, set `client_max_body_size` high enough for resumed threads.

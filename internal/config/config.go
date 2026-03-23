@@ -24,9 +24,10 @@ type TelegramConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey  string
-	Model   string
-	BaseURL string
+	APIKey      string
+	Model       string
+	StrongModel string
+	BaseURL     string
 }
 
 type ProviderConfig struct {
@@ -96,9 +97,10 @@ func loadConfig(envFiles []string, override bool) (Config, error) {
 			OperatorIDs: operatorIDs,
 		},
 		OpenAI: OpenAIConfig{
-			APIKey:  os.Getenv("OPENAI_API_KEY"),
-			Model:   envOrDefault("VIBEGRAM_OPENAI_MODEL", "gpt-5"),
-			BaseURL: envOrDefault("VIBEGRAM_OPENAI_BASE_URL", "https://api.openai.com/v1"),
+			APIKey:      os.Getenv("OPENAI_API_KEY"),
+			Model:       envOrDefault("VIBEGRAM_OPENAI_MODEL", "gpt-5-mini"),
+			StrongModel: envOrDefault("VIBEGRAM_OPENAI_STRONG_MODEL", "gpt-5"),
+			BaseURL:     envOrDefault("VIBEGRAM_OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		},
 		Providers: ProviderConfig{
 			ClaudeCommand: os.Getenv("VIBEGRAM_PROVIDER_CLAUDE_CMD"),
