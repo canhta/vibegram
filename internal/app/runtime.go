@@ -23,6 +23,7 @@ type botClient interface {
 	EditMessageCard(ctx context.Context, chatID int64, messageID int, text string, markup telegram.InlineKeyboardMarkup) error
 	AnswerCallback(ctx context.Context, callbackID, text string) error
 	CreateForumTopic(ctx context.Context, chatID int64, name string) (int, error)
+	EditForumTopic(ctx context.Context, chatID int64, threadID int, name string) error
 	DeleteForumTopic(ctx context.Context, chatID int64, threadID int) error
 }
 

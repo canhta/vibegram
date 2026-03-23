@@ -369,6 +369,38 @@ func TestClientCreateForumTopicReturnsThreadID(t *testing.T) {
 	}
 }
 
+func TestClientEditForumTopicUsesThreadIDAndName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bottest-token/editForumTopic" {
+			t.Fatalf("Path = %q, want %q", r.URL.Path, "/bottest-token/editForumTopic")
+		}
+
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+
+		if body["chat_id"] != float64(-100123) {
+			t.Fatalf("chat_id = %v, want -100123", body["chat_id"])
+		}
+		if body["message_thread_id"] != float64(42) {
+			t.Fatalf("message_thread_id = %v, want 42", body["message_thread_id"])
+		}
+		if body["name"] != "🟢 [codex] · vibegram · cleanup mismatch · #1903" {
+			t.Fatalf("name = %v, want dynamic topic title", body["name"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token", server.URL)
+	if err := client.EditForumTopic(context.Background(), -100123, 42, "🟢 [codex] · vibegram · cleanup mismatch · #1903"); err != nil {
+		t.Fatalf("EditForumTopic() error = %v", err)
+	}
+}
+
 func TestClientDeleteForumTopicUsesThreadID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottest-token/deleteForumTopic" {

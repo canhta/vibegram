@@ -92,6 +92,9 @@ func (r *Runtime) upsertSessionHeaderCard(ctx context.Context, chatID int64, thr
 	if session == nil {
 		return nil
 	}
+	if err := r.syncSessionTopicTitle(ctx, chatID, threadID, session); err != nil {
+		return err
+	}
 
 	text := renderSessionHeaderCard(*session)
 	markup := telegram.InlineKeyboardMarkup{}
@@ -116,6 +119,9 @@ func (r *Runtime) upsertSessionHeaderCard(ctx context.Context, chatID int64, thr
 	if err := r.bot.EditMessageCard(ctx, chatID, session.SessionHeaderMessageID, text, markup); err != nil {
 		if isTopicGoneError(err) {
 			return r.retireMissingSessionTopic(ctx, chatID, session, err)
+		}
+		if isMessageNotModifiedError(err) {
+			return r.refreshGeneralControlCardIfPresent(ctx, chatID)
 		}
 		return fmt.Errorf("edit session header card: %w", err)
 	}

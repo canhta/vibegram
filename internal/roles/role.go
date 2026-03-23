@@ -76,7 +76,11 @@ TASK
 		event.Summary,
 	)
 
-	raw, err := e.selectCaller(snap, event).Call(ctx, prompt)
+	caller := e.selectCaller(snap, event)
+	raw, err := caller.Call(ctx, prompt)
+	if err != nil && caller == e.strongCaller && e.strongCaller != nil && e.caller != nil && e.caller != e.strongCaller {
+		raw, err = e.caller.Call(ctx, prompt)
+	}
 	if err != nil {
 		return Decision{Action: ActionNoop}, fmt.Errorf("caller: %w", err)
 	}

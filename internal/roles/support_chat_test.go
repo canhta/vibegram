@@ -40,3 +40,23 @@ func TestSupportResponderValidateUsesStrongCallerWhenConfigured(t *testing.T) {
 		t.Fatalf("strong.calls = %d, want 1", strong.calls)
 	}
 }
+
+func TestSupportResponderValidateFallsBackToCheapCallerWhenStrongFails(t *testing.T) {
+	cheap := &mockCaller{response: "cheap"}
+	strong := &mockCaller{err: context.Canceled}
+	responder := NewSupportResponder(cheap, strong)
+
+	reply, err := responder.Validate(context.Background(), "rewrite this launch brief")
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if reply != "cheap" {
+		t.Fatalf("reply = %q, want cheap", reply)
+	}
+	if cheap.calls != 1 {
+		t.Fatalf("cheap.calls = %d, want 1", cheap.calls)
+	}
+	if strong.calls != 1 {
+		t.Fatalf("strong.calls = %d, want 1", strong.calls)
+	}
+}

@@ -106,6 +106,23 @@ func (c *Client) CreateForumTopic(ctx context.Context, chatID int64, name string
 	return resp.Result.MessageThreadID, nil
 }
 
+func (c *Client) EditForumTopic(ctx context.Context, chatID int64, threadID int, name string) error {
+	req, err := c.newJSONRequest(ctx, "/editForumTopic", map[string]any{
+		"chat_id":           chatID,
+		"message_thread_id": threadID,
+		"name":              name,
+	})
+	if err != nil {
+		return err
+	}
+
+	var resp struct {
+		OK     bool `json:"ok"`
+		Result bool `json:"result"`
+	}
+	return c.doJSON(req, &resp)
+}
+
 func (c *Client) DeleteForumTopic(ctx context.Context, chatID int64, threadID int) error {
 	req, err := c.newJSONRequest(ctx, "/deleteForumTopic", map[string]any{
 		"chat_id":           chatID,

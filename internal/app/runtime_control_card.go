@@ -39,7 +39,7 @@ func (r *Runtime) refreshGeneralControlCard(ctx context.Context, chatID int64) e
 	if messageID, found, err := r.generalControlCardMessageID(); err != nil {
 		return err
 	} else if found {
-		if err := r.bot.EditMessageCard(ctx, chatID, messageID, text, markup); err == nil {
+		if err := r.bot.EditMessageCard(ctx, chatID, messageID, text, markup); err == nil || isMessageNotModifiedError(err) {
 			return nil
 		}
 	}

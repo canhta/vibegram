@@ -14,9 +14,11 @@ import (
 )
 
 type cleanupTarget struct {
+	Key       string
 	ThreadID int
 	Label    string
 	Sessions []state.Session
+	LiveTopic bool
 }
 
 func (r *Runtime) showCleanupPicker(ctx context.Context, chatID int64) error {
@@ -32,7 +34,7 @@ func (r *Runtime) showCleanupPicker(ctx context.Context, chatID int64) error {
 	for _, target := range targets {
 		rows = append(rows, []telegram.InlineKeyboardButton{{
 			Text:         target.Label,
-			CallbackData: fmt.Sprintf("cleanup:topic:%d", target.ThreadID),
+			CallbackData: "cleanup:" + target.Key,
 		}})
 	}
 	rows = append(rows, []telegram.InlineKeyboardButton{{
@@ -40,7 +42,7 @@ func (r *Runtime) showCleanupPicker(ctx context.Context, chatID int64) error {
 		CallbackData: "cleanup:all",
 	}})
 
-	_, err = r.bot.SendMessageCard(ctx, chatID, nil, "Select session topics to delete.", telegram.InlineKeyboardMarkup{
+	_, err = r.bot.SendMessageCard(ctx, chatID, nil, cleanupPrompt(targets), telegram.InlineKeyboardMarkup{
 		InlineKeyboard: rows,
 	})
 	return err
@@ -60,12 +62,26 @@ func (r *Runtime) handleCleanupCallback(ctx context.Context, chatID int64, data 
 		if err != nil {
 			return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: invalid topic id")
 		}
-		target, ok, err := r.cleanupTargetByThread(threadID)
+		target, ok, err := r.cleanupTargetByKey(fmt.Sprintf("topic:%d", threadID))
 		if err != nil {
 			return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
 		}
 		if !ok {
 			return r.bot.SendMessage(ctx, chatID, nil, "cleanup: topic already gone")
+		}
+		return r.cleanupTargetsBySelection(ctx, chatID, []cleanupTarget{target})
+
+	case strings.HasPrefix(data, "cleanup:session:"):
+		sessionID := strings.TrimPrefix(data, "cleanup:session:")
+		if strings.TrimSpace(sessionID) == "" {
+			return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: invalid session id")
+		}
+		target, ok, err := r.cleanupTargetByKey("session:" + sessionID)
+		if err != nil {
+			return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
+		}
+		if !ok {
+			return r.bot.SendMessage(ctx, chatID, nil, "cleanup: session already gone")
 		}
 		return r.cleanupTargetsBySelection(ctx, chatID, []cleanupTarget{target})
 
@@ -75,19 +91,20 @@ func (r *Runtime) handleCleanupCallback(ctx context.Context, chatID int64, data 
 }
 
 func (r *Runtime) cleanupTargetsBySelection(ctx context.Context, chatID int64, targets []cleanupTarget) error {
-	deleted := 0
 	for _, target := range targets {
-		if err := r.bot.DeleteForumTopic(ctx, chatID, target.ThreadID); err != nil {
-			if !isTopicGoneError(err) {
-				return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
+		if target.LiveTopic {
+			if err := r.bot.DeleteForumTopic(ctx, chatID, target.ThreadID); err != nil {
+				if !isTopicGoneError(err) {
+					return r.bot.SendMessage(ctx, chatID, nil, "cleanup failed: "+err.Error())
+				}
 			}
-		} else {
-			deleted++
 		}
 
-		r.mu.Lock()
-		delete(r.sessionsByThread, target.ThreadID)
-		r.mu.Unlock()
+		if target.LiveTopic {
+			r.mu.Lock()
+			delete(r.sessionsByThread, target.ThreadID)
+			r.mu.Unlock()
+		}
 
 		for _, session := range target.Sessions {
 			if session.SessionTopicID > 1 {
@@ -112,13 +129,13 @@ func (r *Runtime) cleanupTargetsBySelection(ctx context.Context, chatID int64, t
 	return r.bot.SendMessage(ctx, chatID, nil, fmt.Sprintf("cleanup: deleted %d topic(s)", len(targets)))
 }
 
-func (r *Runtime) cleanupTargetByThread(threadID int) (cleanupTarget, bool, error) {
+func (r *Runtime) cleanupTargetByKey(key string) (cleanupTarget, bool, error) {
 	targets, err := r.cleanupTargets()
 	if err != nil {
 		return cleanupTarget{}, false, err
 	}
 	for _, target := range targets {
-		if target.ThreadID == threadID {
+		if target.Key == key {
 			return target, true, nil
 		}
 	}
@@ -132,8 +149,16 @@ func (r *Runtime) cleanupTargets() ([]cleanupTarget, error) {
 	}
 
 	byThread := make(map[int][]state.Session, len(sessions))
+	retired := make([]cleanupTarget, 0)
 	for _, session := range sessions {
 		if session.SessionTopicID <= 1 {
+			retired = append(retired, cleanupTarget{
+				Key:       "session:" + string(session.ID),
+				ThreadID:  0,
+				Label:     cleanupLabel(0, []state.Session{session}) + " (retired)",
+				Sessions:  []state.Session{session},
+				LiveTopic: false,
+			})
 			continue
 		}
 		threadID := int(session.SessionTopicID)
@@ -143,11 +168,14 @@ func (r *Runtime) cleanupTargets() ([]cleanupTarget, error) {
 	targets := make([]cleanupTarget, 0, len(byThread))
 	for threadID, sessions := range byThread {
 		targets = append(targets, cleanupTarget{
-			ThreadID: threadID,
-			Label:    cleanupLabel(threadID, sessions),
-			Sessions: sessions,
+			Key:       fmt.Sprintf("topic:%d", threadID),
+			ThreadID:  threadID,
+			Label:     cleanupLabel(threadID, sessions),
+			Sessions:  sessions,
+			LiveTopic: true,
 		})
 	}
+	targets = append(targets, retired...)
 
 	sort.Slice(targets, func(i, j int) bool {
 		if targets[i].Label == targets[j].Label {
@@ -157,6 +185,15 @@ func (r *Runtime) cleanupTargets() ([]cleanupTarget, error) {
 	})
 
 	return targets, nil
+}
+
+func cleanupPrompt(targets []cleanupTarget) string {
+	for _, target := range targets {
+		if !target.LiveTopic {
+			return "Select session topics to delete. Retired sessions are also listed."
+		}
+	}
+	return "Select session topics to delete."
 }
 
 func cleanupLabel(threadID int, sessions []state.Session) string {
@@ -175,16 +212,6 @@ func cleanupLabel(threadID int, sessions []state.Session) string {
 	return fmt.Sprintf("Topic %d", threadID)
 }
 
-func derivedTopicTitle(session state.Session) string {
-	if strings.TrimSpace(session.WorkRoot) == "" || strings.TrimSpace(session.Provider) == "" || strings.TrimSpace(string(session.ID)) == "" {
-		return ""
-	}
-	return topicNameForDraft(generalDraft{
-		Provider: session.Provider,
-		WorkRoot: session.WorkRoot,
-	}, shortTopicCode(session.ID))
-}
-
 func isNotFound(err error) bool {
 	return errors.Is(err, state.ErrNotFound)
 }
@@ -192,4 +219,11 @@ func isNotFound(err error) bool {
 func isTopicGoneError(err error) bool {
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "topic_id_invalid") || strings.Contains(text, "message thread not found")
+}
+
+func isMessageNotModifiedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "message is not modified")
 }

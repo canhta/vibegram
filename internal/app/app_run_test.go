@@ -321,7 +321,7 @@ func TestAppRunPersistsTelegramOffsetWhenSessionResumeFails(t *testing.T) {
 	if len(first) < 3 {
 		t.Fatalf("first sent len = %d, want header, awareness, and resume failure", len(first))
 	}
-	if !hasAppRunSentSubstring(first, "Support escalated in project codex ") {
+	if !hasAppRunSentSubstring(first, "Support escalated in ❌ [codex] · project · #0001") {
 		t.Fatalf("first sent = %+v, want General escalation awareness", first)
 	}
 	if !hasAppRunSentSubstring(first, "resume failed:") {

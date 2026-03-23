@@ -144,3 +144,23 @@ func TestRoleExecutorUsesStrongCallerForLongQuestion(t *testing.T) {
 		t.Fatalf("strong caller calls = %d, want 1", strong.calls)
 	}
 }
+
+func TestRoleExecutorFallsBackToCheapCallerWhenStrongFails(t *testing.T) {
+	cheap := &mockCaller{response: `{"action":"reply","message":"cheap"}`}
+	strong := &mockCaller{err: errors.New("bad strong model")}
+	e := NewExecutor(cheap, strong)
+
+	d, err := e.Decide(context.Background(), makeSnap(), makeEvent(events.EventTypeQuestion, strings.Repeat("long architecture question ", 20)))
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	if d.Action != ActionReply || d.Message != "cheap" {
+		t.Fatalf("decision = %+v, want cheap reply", d)
+	}
+	if cheap.calls != 1 {
+		t.Fatalf("cheap caller calls = %d, want 1", cheap.calls)
+	}
+	if strong.calls != 1 {
+		t.Fatalf("strong caller calls = %d, want 1", strong.calls)
+	}
+}

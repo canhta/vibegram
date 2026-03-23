@@ -31,15 +31,19 @@ func runService(ctx context.Context, args []string, stdout, stderr io.Writer, de
 		fs.SetOutput(stderr)
 		envFile := fs.String("env-file", "/etc/vibegram/env", "path to vibegram env file")
 		workRoot := fs.String("work-root", "/var/lib/vibegram", "service work root")
-		serviceUser := fs.String("user", defaultServiceUser, "service account")
+		serviceUser := fs.String("user", "", "service account")
 		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		chosenUser, err := defaultInstallUser(deps, *serviceUser)
+		if err != nil {
 			return err
 		}
 		executable, err := deps.executablePath()
 		if err != nil {
 			return fmt.Errorf("resolve executable: %w", err)
 		}
-		account, err := inspectServiceAccount(*serviceUser, *workRoot, deps)
+		account, err := inspectServiceAccount(chosenUser, *workRoot, deps)
 		if err != nil {
 			return err
 		}
@@ -51,11 +55,15 @@ func runService(ctx context.Context, args []string, stdout, stderr io.Writer, de
 		envFile := fs.String("env-file", "/etc/vibegram/env", "path to vibegram env file")
 		unitFile := fs.String("unit-file", "/etc/systemd/system/vibegram.service", "path to systemd unit file")
 		workRoot := fs.String("work-root", "/var/lib/vibegram", "service work root")
-		serviceUser := fs.String("user", defaultServiceUser, "service account")
+		serviceUser := fs.String("user", "", "service account")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		return installService(ctx, stdout, deps, *envFile, *unitFile, *workRoot, *serviceUser)
+		chosenUser, err := defaultInstallUser(deps, *serviceUser)
+		if err != nil {
+			return err
+		}
+		return installService(ctx, stdout, deps, *envFile, *unitFile, *workRoot, chosenUser)
 	case "start":
 		return deps.runCommand(ctx, "systemctl", "enable", "--now", "vibegram")
 	case "stop":

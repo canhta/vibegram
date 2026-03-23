@@ -23,6 +23,7 @@ import (
 type fakeBotClient struct {
 	mu                sync.RWMutex
 	createdTopicNames []string
+	editedTopicNames  []editedTopicName
 	sent              []sentMessage
 	edited            []editedMessage
 	answeredCallbacks []answeredCallback
@@ -32,6 +33,8 @@ type fakeBotClient struct {
 	updates           []telegram.Update
 	createTopicErr    error
 	sendErrors        map[int]error
+	editMessageErrors map[int]error
+	editTopicErrors   map[int]error
 	deletedTopics     []int
 	deleteTopicErrors map[int]error
 }
@@ -54,6 +57,12 @@ type editedMessage struct {
 type answeredCallback struct {
 	id   string
 	text string
+}
+
+type editedTopicName struct {
+	chatID   int64
+	threadID int
+	name     string
 }
 
 type setCommandsCall struct {
@@ -109,6 +118,11 @@ func (f *fakeBotClient) SendMessageCard(ctx context.Context, chatID int64, threa
 func (f *fakeBotClient) EditMessageCard(ctx context.Context, chatID int64, messageID int, text string, markup telegram.InlineKeyboardMarkup) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.editMessageErrors != nil {
+		if err, ok := f.editMessageErrors[messageID]; ok {
+			return err
+		}
+	}
 	card := markup
 	f.edited = append(f.edited, editedMessage{
 		chatID:    chatID,
@@ -135,6 +149,22 @@ func (f *fakeBotClient) DeleteForumTopic(ctx context.Context, chatID int64, thre
 		}
 	}
 	f.deletedTopics = append(f.deletedTopics, threadID)
+	return nil
+}
+
+func (f *fakeBotClient) EditForumTopic(ctx context.Context, chatID int64, threadID int, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.editTopicErrors != nil {
+		if err, ok := f.editTopicErrors[threadID]; ok {
+			return err
+		}
+	}
+	f.editedTopicNames = append(f.editedTopicNames, editedTopicName{
+		chatID:   chatID,
+		threadID: threadID,
+		name:     name,
+	})
 	return nil
 }
 
@@ -177,6 +207,12 @@ func (f *fakeBotClient) editedSnapshot() []editedMessage {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return append([]editedMessage(nil), f.edited...)
+}
+
+func (f *fakeBotClient) editedTopicNamesSnapshot() []editedTopicName {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]editedTopicName(nil), f.editedTopicNames...)
 }
 
 func (f *fakeBotClient) answeredCallbacksSnapshot() []answeredCallback {
@@ -257,6 +293,7 @@ type fakePolicyEngine struct {
 	lastSnap  state.Snapshot
 	decision  policy.PolicyDecision
 	called    bool
+	err       error
 }
 
 type fakeSupportResponder struct {
@@ -344,6 +381,9 @@ func (f *fakePolicyEngine) Evaluate(ctx context.Context, snap state.Snapshot, ev
 	f.called = true
 	f.lastSnap = snap
 	f.lastEvent = event
+	if f.err != nil {
+		return policy.PolicyDecision{}, f.err
+	}
 	return f.decision, nil
 }
 
@@ -627,7 +667,7 @@ func TestRuntimeHandleSessionTopicResumeFailureMarksSessionFailedWithoutReturnin
 	if resumeFailure.threadID == nil || *resumeFailure.threadID != 42 {
 		t.Fatalf("threadID = %v, want 42", resumeFailure.threadID)
 	}
-	if !sentMessagesContainSubstring(bot.sent, "Support escalated in project codex ") {
+	if !sentMessagesContainSubstring(bot.sent, "Support escalated in ❌ [codex] · project · #0001") {
 		t.Fatalf("sent messages = %+v, want General escalation awareness", bot.sent)
 	}
 
@@ -923,7 +963,7 @@ func TestRuntimeHandleSessionTopicMessageAllowsAutoReplyOnResumedCodexStop(t *te
 	if !sentMessagesContain(bot.sent, "Question: Which test framework should I use?") {
 		t.Fatalf("sent messages = %+v, want question message", bot.sent)
 	}
-	if !sentMessagesContainSubstring(bot.sent, "Support replied in project codex ") {
+	if !sentMessagesContainSubstring(bot.sent, "Support replied in 🟢 [codex] · project · #0001") {
 		t.Fatalf("sent messages = %+v, want General support awareness", bot.sent)
 	}
 	if !sentMessagesContain(bot.sent, "Agent reply: Use Go's standard library testing package.") {
@@ -1005,10 +1045,10 @@ func TestRuntimeMaybeAutoReplyResumeFailureMarksSessionFailedWithoutReturningErr
 	if !sentMessagesContain(bot.sent, "Agent reply: Use Go's standard library testing package.") {
 		t.Fatalf("sent messages = %+v, want agent reply note", bot.sent)
 	}
-	if !sentMessagesContainSubstring(bot.sent, "Support replied in project codex ") || !sentMessagesContainSubstring(bot.sent, "Use Go's standard library testing package.") {
+	if !sentMessagesContainSubstring(bot.sent, "Support replied in 🟢 [codex] · project · #0001") || !sentMessagesContainSubstring(bot.sent, "Use Go's standard library testing package.") {
 		t.Fatalf("sent messages = %+v, want reply awareness", bot.sent)
 	}
-	if !sentMessagesContainSubstring(bot.sent, "Support escalated in project codex ") || !sentMessagesContainSubstring(bot.sent, "unexpected status 413 Payload Too Large") {
+	if !sentMessagesContainSubstring(bot.sent, "Support escalated in ❌ [codex] · project · #0001") || !sentMessagesContainSubstring(bot.sent, "unexpected status 413 Payload Too Large") {
 		t.Fatalf("sent messages = %+v, want escalation awareness", bot.sent)
 	}
 	if !sentMessagesContainSubstring(bot.sent, "resume failed: codex exit 1: unexpected status 413 Payload Too Large") {
@@ -1035,6 +1075,86 @@ func TestRuntimeMaybeAutoReplyResumeFailureMarksSessionFailedWithoutReturningErr
 	}
 	if failedRun.Status != state.RunStatusFailed {
 		t.Fatalf("run status = %q, want %q", failedRun.Status, state.RunStatusFailed)
+	}
+}
+
+func TestRuntimeMaybeAutoReplyPolicyErrorEscalatesWithoutFailingSession(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_policy",
+		ActiveRunID:    "run_policy",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+		LastGoal:       "ship the fix",
+	}
+	run := state.Run{
+		ID:                "run_policy",
+		SessionID:         "ses_policy",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	engine := &fakePolicyEngine{
+		err: errors.New(`executor: caller: openai api error 400: {"error":{"message":"No credentials for provider: openai"}}`),
+	}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		engine,
+		nil,
+	)
+
+	err := rt.maybeAutoReplyForEvent(context.Background(), -1001234567890, 42, &session, run, events.NormalizedEvent{
+		EventType: events.EventTypeQuestion,
+		Summary:   "Should I cut the release now or wait for one more test pass?",
+		Timestamp: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("maybeAutoReplyForEvent() error = %v, want nil", err)
+	}
+
+	updatedSession, err := store.LoadSession("ses_policy")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if updatedSession.Status != state.SessionStatusRunning {
+		t.Fatalf("session status = %q, want running", updatedSession.Status)
+	}
+	if updatedSession.SupportState != state.SupportStateEscalated {
+		t.Fatalf("support state = %q, want escalated", updatedSession.SupportState)
+	}
+	if !updatedSession.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+	if !sentMessagesContainSubstring(bot.sent, "Support escalated in") {
+		t.Fatalf("sent messages = %+v, want support escalation awareness", bot.sent)
+	}
+	if sentMessagesContainSubstring(bot.sent, "start failed:") {
+		t.Fatalf("sent messages = %+v, do not want session start failure", bot.sent)
 	}
 }
 
@@ -1212,8 +1332,8 @@ func TestCleanupLabelFallsBackToDerivedTopicTitle(t *testing.T) {
 		SessionTopicID: 42,
 	}})
 
-	if label != "vibegram codex 1903" {
-		t.Fatalf("cleanupLabel() = %q, want %q", label, "vibegram codex 1903")
+	if label != "🟢 [codex] · vibegram · #1903" {
+		t.Fatalf("cleanupLabel() = %q, want %q", label, "🟢 [codex] · vibegram · #1903")
 	}
 }
 
@@ -1254,6 +1374,75 @@ func TestRuntimeHandleGeneralCleanupRepliesWhenNoTopicsExist(t *testing.T) {
 
 	if len(bot.sent) != 1 || bot.sent[0].markup != nil || !strings.Contains(bot.sent[0].text, "cleanup: no session topics") {
 		t.Fatalf("cleanup empty reply = %+v", bot.sent)
+	}
+}
+
+func TestRuntimeHandleGeneralCleanupIncludesRetiredSessionsWithoutTopics(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if err := store.SaveSession(state.Session{
+		ID:              "ses_retired",
+		ActiveRunID:     "run_retired",
+		Provider:        "codex",
+		GeneralTopicID:  1,
+		SessionTopicID:  0,
+		Status:          state.SessionStatusFailed,
+		Phase:           state.SessionPhasePlanning,
+		WorkRoot:        "/home/ubuntu/projects/vibegram",
+		EscalationState: state.EscalationStateNeeded,
+		LastBlocker:     "telegram api error 400: message thread not found",
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 31,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/cleanup",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent = %d, want 1 cleanup picker", len(bot.sent))
+	}
+	if bot.sent[0].markup == nil {
+		t.Fatal("cleanup picker markup = nil")
+	}
+	if !strings.Contains(bot.sent[0].text, "Retired sessions are also listed.") {
+		t.Fatalf("cleanup picker text = %q", bot.sent[0].text)
+	}
+	labels := inlineButtonLabels(*bot.sent[0].markup)
+	if !containsLabel(labels, "❌ [codex] · vibegram · #0000 (retired)") {
+		t.Fatalf("cleanup labels = %v, want retired session label", labels)
+	}
+	data := inlineButtonData(*bot.sent[0].markup)
+	if !containsLabel(data, "cleanup:session:ses_retired") {
+		t.Fatalf("cleanup callback data = %v, want cleanup:session:ses_retired", data)
 	}
 }
 
@@ -1580,7 +1769,7 @@ func TestRuntimeHandleGeneralStatusIncludesFailedEscalatedSessionNeedingHumanAct
 	if !strings.Contains(text, "Needs you now: 1") {
 		t.Fatalf("control card text = %q, want attention count", text)
 	}
-	if !strings.Contains(text, "project-failed codex") {
+	if !strings.Contains(text, "❌ [codex] · project-failed · #0000") {
 		t.Fatalf("control card text = %q, want derived topic title", text)
 	}
 	if !strings.Contains(text, "| failed") {
@@ -1758,7 +1947,7 @@ func TestRuntimeApplySupportDecisionCreatesHeaderRefreshesGeneralCardAndPostsAwa
 		t.Fatal("SessionHeaderMessageID = 0, want header to be created for existing session")
 	}
 
-	if !sentMessagesContain(bot.sentSnapshot(), "Support replied in Topic Gamma: Use Go's testing package.") {
+	if !sentMessagesContain(bot.sentSnapshot(), "Support replied in 🟢 [codex] · project-gamma · finish the control room · #0003: Use Go's testing package.") {
 		t.Fatalf("sent messages = %+v, want General awareness", bot.sentSnapshot())
 	}
 
@@ -1771,6 +1960,106 @@ func TestRuntimeApplySupportDecisionCreatesHeaderRefreshesGeneralCardAndPostsAwa
 	}
 	if !strings.Contains(edits[len(edits)-1].text, "Decision: Use Go's testing package.") {
 		t.Fatalf("control card edit = %q, want support decision", edits[len(edits)-1].text)
+	}
+}
+
+func TestUpsertSessionHeaderCardIgnoresMessageNotModified(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:                     "ses_same",
+		ActiveRunID:            "run_same",
+		Provider:               "codex",
+		GeneralTopicID:         1,
+		SessionTopicID:         46,
+		SessionTopicTitle:      "🟢 [codex] · project-gamma · finish the control room · #0000",
+		SessionHeaderMessageID: 77,
+		Status:                 state.SessionStatusRunning,
+		Phase:                  state.SessionPhaseEditing,
+		LastGoal:               "finish the control room",
+		WorkRoot:               "/tmp/project-gamma",
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{
+		editMessageErrors: map[int]error{
+			77: errors.New(`telegram api error 400: {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}`),
+		},
+	}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	if err := rt.upsertSessionHeaderCard(context.Background(), -1001234567890, 46, &session, true); err != nil {
+		t.Fatalf("upsertSessionHeaderCard() error = %v, want nil", err)
+	}
+}
+
+func TestRefreshGeneralControlCardIgnoresMessageNotModified(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if err := store.SaveSession(state.Session{
+		ID:                "ses_1",
+		ActiveRunID:       "run_1",
+		Provider:          "codex",
+		GeneralTopicID:    1,
+		SessionTopicID:    42,
+		SessionTopicTitle: "🟢 [codex] · Topic Alpha · #0001",
+		Status:            state.SessionStatusRunning,
+		Phase:             state.SessionPhaseEditing,
+		LastGoal:          "tighten launch flow",
+		WorkRoot:          "/tmp/project",
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveCursor(generalControlCardCursor, 478); err != nil {
+		t.Fatalf("SaveCursor() error = %v", err)
+	}
+
+	bot := &fakeBotClient{
+		editMessageErrors: map[int]error{
+			478: errors.New(`telegram api error 400: {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}`),
+		},
+	}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	if err := rt.refreshGeneralControlCard(context.Background(), -1001234567890); err != nil {
+		t.Fatalf("refreshGeneralControlCard() error = %v, want nil", err)
+	}
+	if len(bot.sentSnapshot()) != 0 {
+		t.Fatalf("sentSnapshot() = %+v, want no fallback send", bot.sentSnapshot())
 	}
 }
 
@@ -2034,6 +2323,79 @@ func TestRuntimeHandleCleanupCallbackAllDedupesTopicIDs(t *testing.T) {
 
 	if len(bot.deletedTopics) != 1 || bot.deletedTopics[0] != 12 {
 		t.Fatalf("deletedTopics = %v, want [12]", bot.deletedTopics)
+	}
+}
+
+func TestRuntimeHandleCleanupCallbackDeletesRetiredSessionWithoutForumDelete(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:              "ses_retired",
+		ActiveRunID:     "run_retired",
+		Provider:        "codex",
+		GeneralTopicID:  1,
+		SessionTopicID:  0,
+		Status:          state.SessionStatusFailed,
+		Phase:           state.SessionPhasePlanning,
+		WorkRoot:        "/home/ubuntu/projects/vibegram",
+		EscalationState: state.EscalationStateNeeded,
+	}
+	run := state.Run{ID: "run_retired", SessionID: "ses_retired", Provider: "codex", Status: state.RunStatusFailed}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 36,
+		CallbackQuery: &telegram.CallbackQuery{
+			ID:         "cb-cleanup-retired",
+			FromUserID: 1001,
+			Data:       "cleanup:session:ses_retired",
+			Message: telegram.UpdateMessage{
+				MessageID: 9,
+				UserID:    1001,
+				ChatID:    -1001234567890,
+				ThreadID:  1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.deletedTopics) != 0 {
+		t.Fatalf("deletedTopics = %v, want no forum delete for retired session", bot.deletedTopics)
+	}
+	if len(bot.sent) != 1 || !strings.Contains(bot.sent[0].text, "cleanup: deleted 1 topic") {
+		t.Fatalf("cleanup reply = %+v", bot.sent)
+	}
+	if _, err := store.LoadSession("ses_retired"); !isNotFound(err) {
+		t.Fatalf("LoadSession(ses_retired) err = %v, want not found after cleanup", err)
+	}
+	if _, err := store.LoadRun("run_retired"); !isNotFound(err) {
+		t.Fatalf("LoadRun(run_retired) err = %v, want not found after cleanup", err)
 	}
 }
 

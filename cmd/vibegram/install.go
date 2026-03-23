@@ -145,6 +145,9 @@ func defaultInstallUser(deps cliDeps, requested string) (string, error) {
 	if strings.TrimSpace(current.Username) == "" {
 		return defaultServiceUser, nil
 	}
+	if strings.TrimSpace(current.Username) == "root" {
+		return defaultServiceUser, nil
+	}
 	return current.Username, nil
 }
 

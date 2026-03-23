@@ -76,6 +76,9 @@ Return only the final launch brief.`, supportValidationRules, text)
 	}
 
 	reply, err := caller.Call(ctx, prompt)
+	if err != nil && caller == r.strongCaller && r.strongCaller != nil && r.caller != nil && r.caller != r.strongCaller {
+		reply, err = r.caller.Call(ctx, prompt)
+	}
 	if err != nil {
 		return "", err
 	}

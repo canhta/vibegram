@@ -2,7 +2,6 @@ package policy
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/canhta/vibegram/internal/events"
@@ -87,7 +86,7 @@ func (e *Engine) Evaluate(ctx context.Context, snap state.Snapshot, event events
 func (e *Engine) callExecutor(ctx context.Context, snap state.Snapshot, event events.NormalizedEvent) (PolicyDecision, error) {
 	d, err := e.executor.Decide(ctx, snap, event)
 	if err != nil {
-		return PolicyDecision{Action: roles.ActionNoop}, fmt.Errorf("executor: %w", err)
+		return PolicyDecision{Action: roles.ActionEscalate, Reason: "support unavailable: " + err.Error()}, nil
 	}
 	return PolicyDecision{Action: d.Action, Message: d.Message, Reason: d.Reason}, nil
 }

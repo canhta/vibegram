@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -250,7 +249,11 @@ func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, thre
 
 	decision, err := r.policy.Evaluate(ctx, snap, event)
 	if err != nil {
-		return fmt.Errorf("evaluate support policy: %w", err)
+		summary := strings.TrimSpace(err.Error())
+		if summary == "" {
+			summary = "support policy unavailable"
+		}
+		return r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateEscalated, summary, true)
 	}
 	switch decision.Action {
 	case roles.ActionReply:
@@ -388,34 +391,6 @@ func (r *Runtime) recordStartFailure(ctx context.Context, chatID int64, threadID
 		return fmt.Errorf("send start failure: %w", err)
 	}
 	return nil
-}
-
-func topicNameForDraft(draft generalDraft, shortCode string) string {
-	folder := strings.TrimSpace(filepath.Base(strings.TrimSpace(draft.WorkRoot)))
-	if folder == "" || folder == "." || folder == string(filepath.Separator) {
-		folder = "session"
-	}
-	provider := strings.TrimSpace(draft.Provider)
-	if provider == "" {
-		provider = "agent"
-	}
-	if shortCode == "" {
-		shortCode = "0000"
-	}
-	suffix := strings.Join([]string{provider, shortCode}, " ")
-	maxFolderLen := 64 - len(suffix) - 1
-	if maxFolderLen < 1 {
-		maxFolderLen = 1
-	}
-	if len(folder) > maxFolderLen {
-		folder = folder[:maxFolderLen]
-	}
-	title := strings.Join([]string{folder, suffix}, " ")
-	title = strings.Join(strings.Fields(title), " ")
-	if len(title) > 64 {
-		title = title[:64]
-	}
-	return title
 }
 
 func shortTopicCode(sessionID state.SessionID) string {

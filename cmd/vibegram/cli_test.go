@@ -121,6 +121,41 @@ func TestRunArgsServicePrintRendersSystemdUnit(t *testing.T) {
 	}
 }
 
+func TestRunArgsServicePrintPrefersOperatorAccountByDefault(t *testing.T) {
+	stdout := new(bytes.Buffer)
+	deps := defaultCLIDeps()
+	deps.executablePath = func() (string, error) {
+		return "/usr/local/bin/vibegram", nil
+	}
+	deps.lookupUser = func(name string) (*user.User, error) {
+		if name != "ubuntu" {
+			t.Fatalf("lookupUser(%q)", name)
+		}
+		return testUser("ubuntu", "/home/ubuntu", "1001"), nil
+	}
+	deps.currentUser = func() (*user.User, error) {
+		return testUser("root", "/root", "0"), nil
+	}
+	deps.getenv = func(key string) string {
+		if key == "SUDO_USER" {
+			return "ubuntu"
+		}
+		return ""
+	}
+
+	if err := runArgsWithDeps(context.Background(), []string{"service", "print", "--env-file", "/etc/vibegram/env"}, strings.NewReader(""), stdout, new(bytes.Buffer), deps); err != nil {
+		t.Fatalf("runArgsWithDeps(service print) error = %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "User=ubuntu") {
+		t.Fatalf("output = %q, want operator service user", output)
+	}
+	if !strings.Contains(output, "Environment=HOME=/home/ubuntu") {
+		t.Fatalf("output = %q, want operator home", output)
+	}
+}
+
 func TestRunArgsServiceInstallWritesUnitAndPreparesSystemd(t *testing.T) {
 	tmp := t.TempDir()
 	envPath := filepath.Join(tmp, "env")
@@ -140,6 +175,10 @@ func TestRunArgsServiceInstallWritesUnitAndPreparesSystemd(t *testing.T) {
 	deps.lookupUser = func(name string) (*user.User, error) {
 		return nil, user.UnknownUserError(name)
 	}
+	deps.currentUser = func() (*user.User, error) {
+		return testUser("root", "/root", "0"), nil
+	}
+	deps.getenv = func(key string) string { return "" }
 	deps.runCommand = func(ctx context.Context, name string, args ...string) error {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return nil
@@ -188,6 +227,78 @@ func TestRunArgsServiceInstallWritesUnitAndPreparesSystemd(t *testing.T) {
 
 	if !strings.Contains(stdout.String(), "systemctl enable --now vibegram") {
 		t.Fatalf("stdout = %q, want start hint", stdout.String())
+	}
+}
+
+func TestRunArgsServiceInstallPrefersOperatorAccountByDefault(t *testing.T) {
+	tmp := t.TempDir()
+	envPath := filepath.Join(tmp, "env")
+	unitPath := filepath.Join(tmp, "vibegram.service")
+	workRoot := filepath.Join(tmp, "var", "lib", "vibegram")
+
+	if err := os.WriteFile(envPath, []byte("VIBEGRAM_TELEGRAM_BOT_TOKEN=token\nVIBEGRAM_TELEGRAM_FORUM_CHAT_ID=-1001234567890\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", envPath, err)
+	}
+
+	var calls []string
+	stdout := new(bytes.Buffer)
+	deps := defaultCLIDeps()
+	deps.executablePath = func() (string, error) {
+		return "/usr/local/bin/vibegram", nil
+	}
+	deps.lookupUser = func(name string) (*user.User, error) {
+		if name != "ubuntu" {
+			t.Fatalf("lookupUser(%q)", name)
+		}
+		return testUser("ubuntu", "/home/ubuntu", "1001"), nil
+	}
+	deps.currentUser = func() (*user.User, error) {
+		return testUser("root", "/root", "0"), nil
+	}
+	deps.getenv = func(key string) string {
+		if key == "SUDO_USER" {
+			return "ubuntu"
+		}
+		return ""
+	}
+	deps.runCommand = func(ctx context.Context, name string, args ...string) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return nil
+	}
+
+	err := runArgsWithDeps(
+		context.Background(),
+		[]string{"service", "install", "--env-file", envPath, "--unit-file", unitPath, "--work-root", workRoot},
+		strings.NewReader(""),
+		stdout,
+		new(bytes.Buffer),
+		deps,
+	)
+	if err != nil {
+		t.Fatalf("runArgsWithDeps(service install) error = %v", err)
+	}
+
+	unitData, err := os.ReadFile(unitPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", unitPath, err)
+	}
+	unitText := string(unitData)
+	if !strings.Contains(unitText, "User=ubuntu") {
+		t.Fatalf("unit file = %q, want operator service user", unitText)
+	}
+	if !strings.Contains(unitText, "Environment=HOME=/home/ubuntu") {
+		t.Fatalf("unit file = %q, want operator home", unitText)
+	}
+
+	for _, want := range []string{
+		"chown -R ubuntu:1001 " + workRoot,
+		"chown root:1001 " + envPath,
+		"chmod 640 " + envPath,
+		"systemctl daemon-reload",
+	} {
+		if !containsString(calls, want) {
+			t.Fatalf("command calls = %v, want %q", calls, want)
+		}
 	}
 }
 

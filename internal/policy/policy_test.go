@@ -13,10 +13,14 @@ import (
 type mockExecutor struct {
 	decision roles.Decision
 	called   bool
+	err      error
 }
 
 func (m *mockExecutor) Decide(ctx context.Context, snap state.Snapshot, event events.NormalizedEvent) (roles.Decision, error) {
 	m.called = true
+	if m.err != nil {
+		return roles.Decision{}, m.err
+	}
 	return m.decision, nil
 }
 
@@ -228,5 +232,21 @@ func TestPolicyRiskyBlockedSummaryEscalatesWithoutExecutor(t *testing.T) {
 	}
 	if exec.called {
 		t.Fatal("expected executor NOT to be called for risky summary")
+	}
+}
+
+func TestPolicyQuestionEscalatesWhenExecutorFails(t *testing.T) {
+	exec := &mockExecutor{err: context.Canceled}
+	engine := NewEngine(exec)
+
+	d, err := engine.Evaluate(context.Background(), makeSnap(0), makeEvent(events.EventTypeQuestion))
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v, want nil", err)
+	}
+	if d.Action != roles.ActionEscalate {
+		t.Fatalf("expected ActionEscalate when executor fails, got %v", d.Action)
+	}
+	if d.Reason == "" {
+		t.Fatal("Reason = empty, want support-unavailable reason")
 	}
 }

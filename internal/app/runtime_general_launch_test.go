@@ -125,8 +125,8 @@ func TestTopicNameForDraftUsesFolderProviderAndShortCode(t *testing.T) {
 		Provider: "codex",
 		WorkRoot: "/Users/canh/Desktop",
 	}, "1651")
-	if got != "Desktop codex 1651" {
-		t.Fatalf("topicNameForDraft() = %q, want %q", got, "Desktop codex 1651")
+	if got != "🟡 [codex] · Desktop · #1651" {
+		t.Fatalf("topicNameForDraft() = %q, want %q", got, "🟡 [codex] · Desktop · #1651")
 	}
 }
 
@@ -282,7 +282,7 @@ func TestRuntimeGeneralWizardLaunchAutoRepliesToSafeQuestion(t *testing.T) {
 	if !hasSentText(sent, "Question: Which test framework should I use?") {
 		t.Fatalf("sent messages = %+v, want question message", sent)
 	}
-	if !hasSentContaining(sent, "Support replied in project-x codex ") || !hasSentContaining(sent, "Use Go's standard library testing package.") {
+	if !hasSentContaining(sent, "Support replied in 🟢 [codex] · project-x · choose test framework · #") || !hasSentContaining(sent, "Use Go's standard library testing package.") {
 		t.Fatalf("sent messages = %+v, want General support awareness", sent)
 	}
 	if !hasSentText(sent, "Agent reply: Use Go's standard library testing package.") {
@@ -576,7 +576,7 @@ func TestRuntimeGeneralWizardLaunchMarksHeaderFailedWhenStartFails(t *testing.T)
 	if !hasSentText(sent, "start failed: provider offline") {
 		t.Fatalf("sent messages = %+v, want start failure message", sent)
 	}
-	if !hasSentContaining(sent, "Support escalated in project-x codex ") || !hasSentText(sent, "start failed: provider offline") {
+	if !hasSentContaining(sent, "Support escalated in ❌ [codex] · project-x · finish setup · #") || !hasSentText(sent, "start failed: provider offline") {
 		t.Fatalf("sent messages = %+v, want General escalation awareness", sent)
 	}
 }
