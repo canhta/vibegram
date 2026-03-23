@@ -18,6 +18,7 @@ type cliDeps struct {
 	lookupUser     func(string) (*user.User, error)
 	currentUser    func() (*user.User, error)
 	getenv         func(string) string
+	fetchURL       func(context.Context, string) ([]byte, error)
 	runCommand     func(context.Context, string, ...string) error
 }
 
@@ -28,6 +29,7 @@ func defaultCLIDeps() cliDeps {
 		lookupUser:     user.Lookup,
 		currentUser:    user.Current,
 		getenv:         os.Getenv,
+		fetchURL:       fetchURLBytes,
 		runCommand:     runCommand,
 	}
 }
@@ -60,6 +62,8 @@ func runArgsWithDeps(ctx context.Context, args []string, stdin io.Reader, stdout
 		return runInit(ctx, stdin, stdout, *envFile, deps)
 	case "install":
 		return runInstall(ctx, args[1:], stdin, stdout, stderr, deps)
+	case "upgrade":
+		return runUpgrade(ctx, args[1:], stdout, stderr, deps)
 	case "service":
 		return runService(ctx, args[1:], stdout, stderr, deps)
 	default:

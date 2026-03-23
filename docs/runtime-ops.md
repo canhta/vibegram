@@ -45,6 +45,27 @@ That command should:
 - enable and start the service
 - print final service status
 
+After the first install, the standard in-place Ubuntu upgrade flow is:
+
+```bash
+sudo vibegram upgrade
+```
+
+That command should:
+
+- resolve the latest GitHub release unless `--version` is set
+- download `SHA256SUMS` and the matching release tarball for the current platform
+- verify the tarball checksum before changing the installed binary
+- replace the current `vibegram` executable while leaving `/etc/vibegram/env` and the systemd unit alone
+- restart the `vibegram` service
+- print final service status
+
+Pinned release upgrades should also work:
+
+```bash
+sudo vibegram upgrade --version v0.1.1
+```
+
 Advanced split flow still exists:
 
 ```bash

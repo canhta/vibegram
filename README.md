@@ -94,12 +94,12 @@ What is still being tightened:
 
 Download the latest Linux release from the [releases page](https://github.com/canhta/vibegram/releases).
 
-Example for `v1.0.0`:
+Example for `v0.1.1`:
 
 ```bash
-curl -L https://github.com/canhta/vibegram/releases/download/v1.0.0/vibegram_1.0.0_linux_amd64.tar.gz -o vibegram_1.0.0_linux_amd64.tar.gz
-tar -xzf vibegram_1.0.0_linux_amd64.tar.gz
-sudo install -m 0755 vibegram_1.0.0_linux_amd64/vibegram /usr/local/bin/vibegram
+curl -L https://github.com/canhta/vibegram/releases/download/v0.1.1/vibegram_0.1.1_linux_amd64.tar.gz -o vibegram_0.1.1_linux_amd64.tar.gz
+tar -xzf vibegram_0.1.1_linux_amd64.tar.gz
+sudo install -m 0755 vibegram_0.1.1_linux_amd64/vibegram /usr/local/bin/vibegram
 sudo vibegram install
 ```
 
@@ -109,6 +109,22 @@ The installer will:
 - detect `codex` and `claude` paths when possible
 - write `/etc/vibegram/env`
 - install and start the `systemd` service
+
+## Ubuntu upgrade
+
+After the first install, upgrade the VPS in place with:
+
+```bash
+sudo vibegram upgrade
+```
+
+That command downloads the latest GitHub release for the current platform, verifies `SHA256SUMS`, replaces the installed binary, restarts `vibegram`, and prints `systemctl status`.
+
+To pin a specific release:
+
+```bash
+sudo vibegram upgrade --version v0.1.1
+```
 
 ## Local run
 

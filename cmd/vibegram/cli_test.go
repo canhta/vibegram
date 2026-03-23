@@ -1,12 +1,19 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"flag"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -184,6 +191,191 @@ func TestRunArgsServiceInstallWritesUnitAndPreparesSystemd(t *testing.T) {
 	}
 }
 
+func TestRunArgsUpgradeHelpIsRecognized(t *testing.T) {
+	err := runArgsWithDeps(
+		context.Background(),
+		[]string{"upgrade", "-h"},
+		strings.NewReader(""),
+		new(bytes.Buffer),
+		new(bytes.Buffer),
+		defaultCLIDeps(),
+	)
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("runArgsWithDeps(upgrade -h) error = %v, want flag.ErrHelp", err)
+	}
+}
+
+func TestRunArgsUpgradeDownloadsLatestReleaseAndRestartsService(t *testing.T) {
+	tmp := t.TempDir()
+	currentBinaryPath := filepath.Join(tmp, "usr", "local", "bin", "vibegram")
+	if err := os.MkdirAll(filepath.Dir(currentBinaryPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(currentBinaryPath), err)
+	}
+
+	oldBinary := []byte("old-binary")
+	if err := os.WriteFile(currentBinaryPath, oldBinary, 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", currentBinaryPath, err)
+	}
+
+	version := "v0.1.0"
+	assetVersion := strings.TrimPrefix(version, "v")
+	assetBase := fmt.Sprintf("vibegram_%s_%s_%s", assetVersion, runtime.GOOS, runtime.GOARCH)
+	tarballName := assetBase + ".tar.gz"
+	newBinary := []byte("new-binary")
+	tarball := releaseTarball(t, assetBase, newBinary)
+	checksum := sha256Hex(tarball)
+
+	var fetched []string
+	var commands []string
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+
+	deps := defaultCLIDeps()
+	deps.executablePath = func() (string, error) {
+		return currentBinaryPath, nil
+	}
+	deps.fetchURL = func(ctx context.Context, url string) ([]byte, error) {
+		fetched = append(fetched, url)
+		switch url {
+		case "https://api.github.com/repos/canhta/vibegram/releases/latest":
+			return []byte(`{"tag_name":"v0.1.0"}`), nil
+		case "https://github.com/canhta/vibegram/releases/download/v0.1.0/SHA256SUMS":
+			return []byte(checksum + "  ./" + tarballName + "\n"), nil
+		case "https://github.com/canhta/vibegram/releases/download/v0.1.0/" + tarballName:
+			return tarball, nil
+		default:
+			return nil, fmt.Errorf("unexpected URL %q", url)
+		}
+	}
+	deps.runCommand = func(ctx context.Context, name string, args ...string) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	}
+
+	if err := runArgsWithDeps(context.Background(), []string{"upgrade"}, strings.NewReader(""), stdout, stderr, deps); err != nil {
+		t.Fatalf("runArgsWithDeps(upgrade) error = %v", err)
+	}
+
+	gotBinary, err := os.ReadFile(currentBinaryPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", currentBinaryPath, err)
+	}
+	if string(gotBinary) != string(newBinary) {
+		t.Fatalf("installed binary = %q, want %q", gotBinary, newBinary)
+	}
+
+	backupMatches, err := filepath.Glob(currentBinaryPath + ".bak-*")
+	if err != nil {
+		t.Fatalf("Glob(backup) error = %v", err)
+	}
+	if len(backupMatches) != 1 {
+		t.Fatalf("backup files = %v, want exactly one", backupMatches)
+	}
+	backupBinary, err := os.ReadFile(backupMatches[0])
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", backupMatches[0], err)
+	}
+	if string(backupBinary) != string(oldBinary) {
+		t.Fatalf("backup binary = %q, want %q", backupBinary, oldBinary)
+	}
+
+	for _, want := range []string{
+		"https://api.github.com/repos/canhta/vibegram/releases/latest",
+		"https://github.com/canhta/vibegram/releases/download/v0.1.0/SHA256SUMS",
+		"https://github.com/canhta/vibegram/releases/download/v0.1.0/" + tarballName,
+	} {
+		if !containsString(fetched, want) {
+			t.Fatalf("fetched URLs = %v, want %q", fetched, want)
+		}
+	}
+
+	for _, want := range []string{
+		"systemctl restart vibegram",
+		"systemctl status vibegram --no-pager",
+	} {
+		if !containsString(commands, want) {
+			t.Fatalf("command calls = %v, want %q", commands, want)
+		}
+	}
+
+	if !strings.Contains(stdout.String(), "Upgraded vibegram to v0.1.0") {
+		t.Fatalf("stdout = %q, want upgrade confirmation", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunArgsUpgradeRejectsChecksumMismatch(t *testing.T) {
+	tmp := t.TempDir()
+	currentBinaryPath := filepath.Join(tmp, "usr", "local", "bin", "vibegram")
+	if err := os.MkdirAll(filepath.Dir(currentBinaryPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(currentBinaryPath), err)
+	}
+
+	oldBinary := []byte("old-binary")
+	if err := os.WriteFile(currentBinaryPath, oldBinary, 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", currentBinaryPath, err)
+	}
+
+	version := "v0.1.0"
+	assetVersion := strings.TrimPrefix(version, "v")
+	assetBase := fmt.Sprintf("vibegram_%s_%s_%s", assetVersion, runtime.GOOS, runtime.GOARCH)
+	tarballName := assetBase + ".tar.gz"
+	tarball := releaseTarball(t, assetBase, []byte("new-binary"))
+
+	var commands []string
+	deps := defaultCLIDeps()
+	deps.executablePath = func() (string, error) {
+		return currentBinaryPath, nil
+	}
+	deps.fetchURL = func(ctx context.Context, url string) ([]byte, error) {
+		switch url {
+		case "https://github.com/canhta/vibegram/releases/download/v0.1.0/SHA256SUMS":
+			return []byte(strings.Repeat("0", 64) + "  ./" + tarballName + "\n"), nil
+		case "https://github.com/canhta/vibegram/releases/download/v0.1.0/" + tarballName:
+			return tarball, nil
+		default:
+			return nil, fmt.Errorf("unexpected URL %q", url)
+		}
+	}
+	deps.runCommand = func(ctx context.Context, name string, args ...string) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	}
+
+	err := runArgsWithDeps(
+		context.Background(),
+		[]string{"upgrade", "--version", version},
+		strings.NewReader(""),
+		new(bytes.Buffer),
+		new(bytes.Buffer),
+		deps,
+	)
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("runArgsWithDeps(upgrade --version %s) error = %v, want checksum mismatch", version, err)
+	}
+
+	gotBinary, err := os.ReadFile(currentBinaryPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", currentBinaryPath, err)
+	}
+	if string(gotBinary) != string(oldBinary) {
+		t.Fatalf("installed binary = %q, want original %q", gotBinary, oldBinary)
+	}
+	if len(commands) != 0 {
+		t.Fatalf("command calls = %v, want none", commands)
+	}
+
+	backupMatches, err := filepath.Glob(currentBinaryPath + ".bak-*")
+	if err != nil {
+		t.Fatalf("Glob(backup) error = %v", err)
+	}
+	if len(backupMatches) != 0 {
+		t.Fatalf("backup files = %v, want none", backupMatches)
+	}
+}
+
 func TestRunArgsInstallBootstrapsServiceInOneCommand(t *testing.T) {
 	tmp := t.TempDir()
 	envPath := filepath.Join(tmp, "etc", "vibegram", "env")
@@ -301,4 +493,47 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func releaseTarball(t *testing.T, root string, binary []byte) []byte {
+	t.Helper()
+
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+
+	writeTarEntry := func(name string, mode int64, data []byte) {
+		t.Helper()
+		hdr := &tar.Header{
+			Name: name,
+			Mode: mode,
+			Size: int64(len(data)),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatalf("WriteHeader(%q) error = %v", name, err)
+		}
+		if _, err := tw.Write(data); err != nil {
+			t.Fatalf("Write(%q) error = %v", name, err)
+		}
+	}
+
+	if err := tw.WriteHeader(&tar.Header{Name: root + "/", Mode: 0o755, Typeflag: tar.TypeDir}); err != nil {
+		t.Fatalf("WriteHeader(root) error = %v", err)
+	}
+	writeTarEntry(root+"/README.md", 0o644, []byte("README"))
+	writeTarEntry(root+"/vibegram", 0o755, binary)
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Close tar writer error = %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("Close gzip writer error = %v", err)
+	}
+
+	return archive.Bytes()
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
