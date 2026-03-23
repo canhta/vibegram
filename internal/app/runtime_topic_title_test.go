@@ -157,3 +157,64 @@ func TestUpsertSessionHeaderCardRenamesTopicWhenStatusChanges(t *testing.T) {
 		t.Fatalf("SessionTopicTitle = %q, want failed title", updated.SessionTopicTitle)
 	}
 }
+
+func TestUpsertSessionHeaderCardUsesIdleTitleWhenRunHasExited(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:                     "ses_1774230019339001903",
+		ActiveRunID:            "run_1",
+		Provider:               "codex",
+		GeneralTopicID:         1,
+		SessionTopicID:         42,
+		SessionTopicTitle:      "🟢 [codex] · vibegram · cleanup mismatch · #1903",
+		SessionHeaderMessageID: 99,
+		Status:                 state.SessionStatusRunning,
+		Phase:                  state.SessionPhasePlanning,
+		LastGoal:               "cleanup mismatch",
+		WorkRoot:               "/tmp/vibegram",
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(state.Run{
+		ID:                "run_1",
+		SessionID:         session.ID,
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	if err := rt.upsertSessionHeaderCard(context.Background(), -1001234567890, 42, &session, true); err != nil {
+		t.Fatalf("upsertSessionHeaderCard() error = %v", err)
+	}
+
+	editedTopics := bot.editedTopicNamesSnapshot()
+	if len(editedTopics) != 1 {
+		t.Fatalf("editedTopicNames = %+v, want 1 topic rename", editedTopics)
+	}
+	if editedTopics[0].name != "⚪ [codex] · vibegram · cleanup mismatch · #1903" {
+		t.Fatalf("edited topic name = %q, want idle title", editedTopics[0].name)
+	}
+}

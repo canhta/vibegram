@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -282,7 +283,7 @@ func TestRuntimeGeneralWizardLaunchAutoRepliesToSafeQuestion(t *testing.T) {
 	if !hasSentText(sent, "Question: Which test framework should I use?") {
 		t.Fatalf("sent messages = %+v, want question message", sent)
 	}
-	if !hasSentContaining(sent, "Support replied in 🟢 [codex] · project-x · choose test framework · #") || !hasSentContaining(sent, "Use Go's standard library testing package.") {
+	if !hasSentContaining(sent, "Support replied in ⚪ [codex] · project-x · choose test framework · #") || !hasSentContaining(sent, "Use Go's standard library testing package.") {
 		t.Fatalf("sent messages = %+v, want General support awareness", sent)
 	}
 	if !hasSentText(sent, "Agent reply: Use Go's standard library testing package.") {
@@ -758,6 +759,133 @@ func TestRuntimeGeneralWizardLaunchStreamsFilteredCodexEventsBeforeProviderFinis
 	}
 
 	rt.Wait()
+}
+
+func TestRuntimeGeneralWizardLaunchHumanChoiceQuestionRendersOnceAndWaitsForHuman(t *testing.T) {
+	projectRoot := t.TempDir()
+	projectX := filepath.Join(projectRoot, "project-x")
+	if err := os.Mkdir(projectX, 0o755); err != nil {
+		t.Fatalf("Mkdir(project-x) error = %v", err)
+	}
+
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := store.SaveSession(state.Session{
+		ID:             "ses_prior",
+		OwnerUserID:    1001,
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		WorkRoot:       projectX,
+		Status:         state.SessionStatusDone,
+		Phase:          state.SessionPhaseWaiting,
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	question := "There is already an [`index.html`](/Users/canh/Desktop/index.html), and a plain HTML page cannot read your home directory live in a normal browser. Do you want me to replace that file with a static snapshot of the current `/Users/canh` file list, or keep `index.html` and create a separate HTML file instead?"
+	questionJSON, err := json.Marshal(question)
+	if err != nil {
+		t.Fatalf("json.Marshal(question) error = %v", err)
+	}
+
+	bot := &fakeBotClient{nextThreadID: 42}
+	codex := &fakeCodexSessionRunner{
+		startStreamLines: []string{
+			fmt.Sprintf(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":%s}]}`, string(questionJSON)),
+		},
+		startResult: codexprovider.SessionResult{
+			ProviderSessionID: "thread-123",
+			Message:           question,
+			RawOutput: strings.Join([]string{
+				fmt.Sprintf(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":%s}]}`, string(questionJSON)),
+				fmt.Sprintf(`{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":%s}}`, string(questionJSON)),
+			}, "\n"),
+		},
+	}
+	engine := &fakePolicyEngine{
+		decision: policy.PolicyDecision{
+			Action:  roles.ActionReply,
+			Message: "Pick whichever one you prefer.",
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Providers: config.ProviderConfig{
+				CodexCommand: "/usr/local/bin/codex",
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		engine,
+		nil,
+	)
+
+	runGeneralWizardToTaskEntryPrompt(t, rt, bot, 1001)
+	sendTaskFromGeneral(t, rt, 1001, "Create a small HMTL file wich content is list file on the home")
+
+	rt.Wait()
+
+	sessions, err := store.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions() error = %v", err)
+	}
+	var session state.Session
+	for _, candidate := range sessions {
+		if candidate.ID != "ses_prior" {
+			session = candidate
+			break
+		}
+	}
+	if session.ID == "" {
+		t.Fatal("launched session was not persisted")
+	}
+	if session.SupportState != state.SupportStateAskHuman {
+		t.Fatalf("SupportState = %q, want %q", session.SupportState, state.SupportStateAskHuman)
+	}
+	if !session.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+	if session.SupportDecisionSummary != question {
+		t.Fatalf("SupportDecisionSummary = %q, want %q", session.SupportDecisionSummary, question)
+	}
+	if engine.called {
+		t.Fatal("policy engine should not be called for an explicit human-choice question")
+	}
+	if codex.resumeSessionID != "" {
+		t.Fatalf("resumeSessionID = %q, want no auto-resume for human-choice question", codex.resumeSessionID)
+	}
+
+	sent := bot.sentSnapshot()
+	var questionCount int
+	for _, msg := range sent {
+		if msg.text == "Question: "+question {
+			questionCount++
+		}
+	}
+	if questionCount != 1 {
+		t.Fatalf("questionCount = %d, want exactly 1 rendered question; sent = %+v", questionCount, sent)
+	}
+	if !hasSentText(sent, "Waiting for your answer before Codex can continue.") {
+		t.Fatalf("sent messages = %+v, want explicit human handoff note", sent)
+	}
+
+	editedTopics := bot.editedTopicNamesSnapshot()
+	if len(editedTopics) == 0 {
+		t.Fatal("editedTopicNamesSnapshot() = 0, want topic rename after ask-human handoff")
+	}
+	lastTitle := editedTopics[len(editedTopics)-1].name
+	if !strings.HasPrefix(lastTitle, "❓ [codex] · project-x · ") || !strings.Contains(lastTitle, " · #") {
+		t.Fatalf("edited topic name = %q, want question title", lastTitle)
+	}
 }
 
 func TestRuntimeGeneralWizardLaunchReportsCreateTopicFailureWithoutCrashing(t *testing.T) {

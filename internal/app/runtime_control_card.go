@@ -13,6 +13,14 @@ import (
 
 const generalControlCardCursor = "general_control_card_message_id"
 
+type generalControlCardRefreshResult string
+
+const (
+	generalControlCardRefreshCreated   generalControlCardRefreshResult = "created"
+	generalControlCardRefreshEdited    generalControlCardRefreshResult = "edited"
+	generalControlCardRefreshUnchanged generalControlCardRefreshResult = "unchanged"
+)
+
 type generalControlCardSession struct {
 	title           string
 	provider        string
@@ -31,24 +39,34 @@ type generalControlCardSession struct {
 }
 
 func (r *Runtime) refreshGeneralControlCard(ctx context.Context, chatID int64) error {
+	_, err := r.refreshGeneralControlCardResult(ctx, chatID)
+	return err
+}
+
+func (r *Runtime) refreshGeneralControlCardResult(ctx context.Context, chatID int64) (generalControlCardRefreshResult, error) {
 	text, markup, err := r.generalControlCardText()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if messageID, found, err := r.generalControlCardMessageID(); err != nil {
-		return err
+		return "", err
 	} else if found {
-		if err := r.bot.EditMessageCard(ctx, chatID, messageID, text, markup); err == nil || isMessageNotModifiedError(err) {
-			return nil
+		if err := r.bot.EditMessageCard(ctx, chatID, messageID, text, markup); err == nil {
+			return generalControlCardRefreshEdited, nil
+		} else if isMessageNotModifiedError(err) {
+			return generalControlCardRefreshUnchanged, nil
 		}
 	}
 
 	messageID, err := r.bot.SendMessageCard(ctx, chatID, nil, text, markup)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return r.saveGeneralControlCardMessageID(messageID)
+	if err := r.saveGeneralControlCardMessageID(messageID); err != nil {
+		return "", err
+	}
+	return generalControlCardRefreshCreated, nil
 }
 
 func (r *Runtime) refreshGeneralControlCardIfPresent(ctx context.Context, chatID int64) error {
@@ -161,64 +179,49 @@ func (r *Runtime) generalControlCardText() (string, telegram.InlineKeyboardMarku
 }
 
 func (r *Runtime) generalControlCardSession(session state.Session) (generalControlCardSession, bool, error) {
+	display := r.displaySession(session)
 	entry := generalControlCardSession{
-		title:           strings.TrimSpace(session.SessionTopicTitle),
-		provider:        strings.TrimSpace(session.Provider),
-		status:          strings.TrimSpace(string(session.Status)),
-		phase:           strings.TrimSpace(string(session.Phase)),
-		goal:            strings.TrimSpace(session.LastGoal),
-		blocker:         strings.TrimSpace(session.LastBlocker),
-		question:        strings.TrimSpace(session.LastQuestion),
-		files:           strings.TrimSpace(session.RecentFilesSummary),
-		tests:           strings.TrimSpace(session.RecentTestsSummary),
-		escalation:      strings.TrimSpace(string(session.EscalationState)),
-		supportState:    supportStateLabel(session.SupportState),
-		supportDecision: strings.TrimSpace(session.SupportDecisionSummary),
-		humanAction:     session.HumanActionNeeded,
+		title:           strings.TrimSpace(display.SessionTopicTitle),
+		provider:        strings.TrimSpace(display.Provider),
+		status:          sessionDisplayStatusLabel(display),
+		phase:           strings.TrimSpace(string(display.Phase)),
+		goal:            strings.TrimSpace(display.LastGoal),
+		blocker:         strings.TrimSpace(display.LastBlocker),
+		question:        strings.TrimSpace(display.LastQuestion),
+		files:           strings.TrimSpace(display.RecentFilesSummary),
+		tests:           strings.TrimSpace(display.RecentTestsSummary),
+		escalation:      strings.TrimSpace(string(display.EscalationState)),
+		supportState:    supportStateLabel(display.SupportState),
+		supportDecision: strings.TrimSpace(display.SupportDecisionSummary),
+		humanAction:     display.HumanActionNeeded,
 	}
 	if entry.title == "" {
-		entry.title = strings.TrimSpace(derivedTopicTitle(session))
+		entry.title = strings.TrimSpace(derivedTopicTitle(display))
 	}
 	if entry.title == "" {
-		entry.title = string(session.ID)
+		entry.title = string(display.ID)
 	}
 	if entry.provider == "" {
 		entry.provider = "unknown"
 	}
 
-	snap, err := r.generalControlCardSnapshot(session.ID)
+	snap, err := r.generalControlCardSnapshot(display.ID)
 	if err != nil {
 		return generalControlCardSession{}, false, err
 	}
 	if snap != nil {
-		if trimmed := strings.TrimSpace(snap.Phase); trimmed != "" {
-			entry.phase = trimmed
-		}
-		if trimmed := strings.TrimSpace(snap.Status); trimmed != "" {
-			entry.status = trimmed
-		}
-		if trimmed := strings.TrimSpace(snap.LastBlocker); trimmed != "" {
-			entry.blocker = trimmed
-		}
-		if trimmed := strings.TrimSpace(snap.LastQuestion); trimmed != "" {
-			entry.question = trimmed
-		}
-		if trimmed := strings.TrimSpace(snap.RecentFilesSummary); trimmed != "" {
-			entry.files = trimmed
-		}
-		if trimmed := strings.TrimSpace(snap.RecentTestsSummary); trimmed != "" {
-			entry.tests = trimmed
-		}
-		if trimmed := strings.TrimSpace(snap.EscalationState); trimmed != "" {
-			entry.escalation = trimmed
-		}
-		if trimmed := strings.TrimSpace(snap.SupportState); trimmed != "" {
-			entry.supportState = strings.ReplaceAll(trimmed, "_", " ")
-		}
-		if trimmed := strings.TrimSpace(snap.SupportDecisionSummary); trimmed != "" {
-			entry.supportDecision = trimmed
-		}
-		entry.humanAction = snap.HumanActionNeeded
+		display.ApplySnapshot(*snap)
+		display = r.displaySession(display)
+		entry.status = sessionDisplayStatusLabel(display)
+		entry.phase = strings.TrimSpace(string(display.Phase))
+		entry.blocker = strings.TrimSpace(display.LastBlocker)
+		entry.question = strings.TrimSpace(display.LastQuestion)
+		entry.files = strings.TrimSpace(display.RecentFilesSummary)
+		entry.tests = strings.TrimSpace(display.RecentTestsSummary)
+		entry.escalation = strings.TrimSpace(string(display.EscalationState))
+		entry.supportState = supportStateLabel(display.SupportState)
+		entry.supportDecision = strings.TrimSpace(display.SupportDecisionSummary)
+		entry.humanAction = display.HumanActionNeeded
 	}
 
 	entry.rank = generalControlCardRank(entry)
@@ -280,7 +283,7 @@ func generalControlCardIsActive(entry generalControlCardSession) bool {
 		return true
 	}
 	switch entry.status {
-	case string(state.SessionStatusRunning), string(state.SessionStatusBlocked):
+	case "idle", string(state.SessionStatusRunning), string(state.SessionStatusBlocked):
 		return true
 	case string(state.SessionStatusFailed):
 		return entry.escalation != "" && entry.escalation != string(state.EscalationStateNone)
@@ -296,6 +299,11 @@ func generalControlCardRank(entry generalControlCardSession) int {
 	switch entry.status {
 	case string(state.SessionStatusBlocked):
 		return 1
+	case "idle":
+		if entry.supportState == string(state.SupportStateReplied) || entry.supportDecision != "" {
+			return 2
+		}
+		return 3
 	case string(state.SessionStatusRunning):
 		if entry.supportState == string(state.SupportStateReplied) || entry.supportDecision != "" {
 			return 2

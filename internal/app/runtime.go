@@ -138,7 +138,7 @@ func (r *Runtime) handleGeneralTopic(ctx context.Context, chatID, userID int64, 
 
 	switch {
 	case text == "status":
-		return r.refreshGeneralControlCard(ctx, chatID)
+		return r.handleGeneralStatus(ctx, chatID)
 
 	case text == "new":
 		return r.startGeneralDraft(ctx, chatID, userID)
@@ -155,6 +155,17 @@ func (r *Runtime) handleGeneralTopic(ctx context.Context, chatID, userID int64, 
 	default:
 		return nil
 	}
+}
+
+func (r *Runtime) handleGeneralStatus(ctx context.Context, chatID int64) error {
+	result, err := r.refreshGeneralControlCardResult(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if result == generalControlCardRefreshUnchanged {
+		return r.bot.SendMessage(ctx, chatID, nil, "General control room is already up to date.")
+	}
+	return nil
 }
 
 func makeID(prefix string) string {

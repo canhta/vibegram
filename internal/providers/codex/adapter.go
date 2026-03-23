@@ -104,7 +104,7 @@ func (a *Adapter) ParseTranscriptLine(ts time.Time, data []byte) (providers.RawO
 							Source:       events.SourceTranscript,
 							RawType:      rawType,
 							RawTimestamp: ts,
-							Summary:      truncate(block.Text, 200),
+							Summary:      summarizeAgentText(block.Text, rawType),
 						},
 					}, true, nil
 				}
@@ -167,6 +167,23 @@ func ClassifyText(text string) string {
 	lower := strings.ToLower(strings.TrimSpace(text))
 	if lower == "" {
 		return ""
+	}
+
+	approvalPhrases := []string{
+		"reply `approve`",
+		"reply approve",
+		"say `approve`",
+		"say approve",
+		"approve and i'll create it",
+		"approve and i’ll create it",
+		"once you approve",
+		"if you approve",
+		"need your approval",
+	}
+	for _, phrase := range approvalPhrases {
+		if strings.Contains(lower, phrase) {
+			return "approval_needed"
+		}
 	}
 
 	blockerResolvedPhrases := []string{

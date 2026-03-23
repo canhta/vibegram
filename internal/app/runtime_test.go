@@ -31,6 +31,7 @@ type fakeBotClient struct {
 	nextThreadID      int
 	nextMessageID     int
 	updates           []telegram.Update
+	getUpdatesErrors  []error
 	createTopicErr    error
 	sendErrors        map[int]error
 	editMessageErrors map[int]error
@@ -180,8 +181,15 @@ func (f *fakeBotClient) SetCommands(ctx context.Context, chatID int64, commands 
 }
 
 func (f *fakeBotClient) GetUpdates(ctx context.Context, offset int64) ([]telegram.Update, error) {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.getUpdatesErrors) > 0 {
+		err := f.getUpdatesErrors[0]
+		f.getUpdatesErrors = f.getUpdatesErrors[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	var updates []telegram.Update
 	for _, update := range f.updates {
 		if update.UpdateID >= offset {
@@ -292,7 +300,9 @@ type fakePolicyEngine struct {
 	lastEvent events.NormalizedEvent
 	lastSnap  state.Snapshot
 	decision  policy.PolicyDecision
+	decisions []policy.PolicyDecision
 	called    bool
+	callCount int
 	err       error
 }
 
@@ -379,10 +389,16 @@ func (f *fakeCodexSessionRunner) ResumeStream(ctx context.Context, workDir, prov
 
 func (f *fakePolicyEngine) Evaluate(ctx context.Context, snap state.Snapshot, event events.NormalizedEvent) (policy.PolicyDecision, error) {
 	f.called = true
+	f.callCount++
 	f.lastSnap = snap
 	f.lastEvent = event
 	if f.err != nil {
 		return policy.PolicyDecision{}, f.err
+	}
+	if len(f.decisions) > 0 {
+		decision := f.decisions[0]
+		f.decisions = f.decisions[1:]
+		return decision, nil
 	}
 	return f.decision, nil
 }
@@ -963,7 +979,7 @@ func TestRuntimeHandleSessionTopicMessageAllowsAutoReplyOnResumedCodexStop(t *te
 	if !sentMessagesContain(bot.sent, "Question: Which test framework should I use?") {
 		t.Fatalf("sent messages = %+v, want question message", bot.sent)
 	}
-	if !sentMessagesContainSubstring(bot.sent, "Support replied in 🟢 [codex] · project · #0001") {
+	if !sentMessagesContainSubstring(bot.sent, "Support replied in ⚪ [codex] · project · #0001") {
 		t.Fatalf("sent messages = %+v, want General support awareness", bot.sent)
 	}
 	if !sentMessagesContain(bot.sent, "Agent reply: Use Go's standard library testing package.") {
@@ -974,6 +990,375 @@ func TestRuntimeHandleSessionTopicMessageAllowsAutoReplyOnResumedCodexStop(t *te
 	}
 	if !sentMessagesContainSubstring(bot.sent, "Support: idle") {
 		t.Fatalf("sent messages = %+v, want session header card for existing session", bot.sent)
+	}
+}
+
+func TestRuntimeHandleSessionTopicMessageAllowsMultipleSafeAutoReplies(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_multi",
+		ActiveRunID:    "run_multi",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+		LastGoal:       "finish the task",
+	}
+	run := state.Run{
+		ID:                "run_multi",
+		SessionID:         "ses_multi",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	questionOne := "Which test framework should I use?"
+	questionTwo := "Should I run gofmt before finishing?"
+	finalReply := "I used Go's standard library testing package and ran gofmt before finishing."
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeResults: []codexprovider.SessionResult{
+			{
+				ProviderSessionID: "thread-123",
+				Message:           questionOne,
+				RawOutput: strings.Join([]string{
+					fmt.Sprintf(`{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":%q}}`, questionOne),
+				}, "\n"),
+			},
+			{
+				ProviderSessionID: "thread-123",
+				Message:           questionTwo,
+				RawOutput: strings.Join([]string{
+					fmt.Sprintf(`{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":%q}}`, questionTwo),
+				}, "\n"),
+			},
+			{
+				ProviderSessionID: "thread-123",
+				Message:           finalReply,
+				RawOutput: strings.Join([]string{
+					fmt.Sprintf(`{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":%q}}`, finalReply),
+				}, "\n"),
+			},
+		},
+	}
+	engine := &fakePolicyEngine{
+		decisions: []policy.PolicyDecision{
+			{
+				Action:  roles.ActionReply,
+				Message: "Use Go's standard library testing package.",
+			},
+			{
+				Action:  roles.ActionReply,
+				Message: "Yes, run gofmt before finishing.",
+			},
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		engine,
+		nil,
+	)
+	rt.sessionsByThread[42] = "ses_multi"
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 6,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 42,
+			Text:     "continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if engine.callCount != 2 {
+		t.Fatalf("callCount = %d, want 2 safe support replies", engine.callCount)
+	}
+	if len(codex.resumePrompts) != 3 {
+		t.Fatalf("resumePrompts = %v, want user input plus two support replies", codex.resumePrompts)
+	}
+	if codex.resumePrompts[0] != "continue" {
+		t.Fatalf("first resume prompt = %q, want user input", codex.resumePrompts[0])
+	}
+	if codex.resumePrompts[1] != "Use Go's standard library testing package." {
+		t.Fatalf("second resume prompt = %q, want first support reply", codex.resumePrompts[1])
+	}
+	if codex.resumePrompts[2] != "Yes, run gofmt before finishing." {
+		t.Fatalf("third resume prompt = %q, want second support reply", codex.resumePrompts[2])
+	}
+	if !sentMessagesContain(bot.sent, "Agent reply: Use Go's standard library testing package.") {
+		t.Fatalf("sent messages = %+v, want first support reply note", bot.sent)
+	}
+	if !sentMessagesContain(bot.sent, "Agent reply: Yes, run gofmt before finishing.") {
+		t.Fatalf("sent messages = %+v, want second support reply note", bot.sent)
+	}
+	if !sentMessagesContain(bot.sent, finalReply) {
+		t.Fatalf("sent messages = %+v, want final agent reply", bot.sent)
+	}
+	if sentMessagesContain(bot.sent, "Waiting for your answer before Codex can continue.") {
+		t.Fatalf("sent messages = %+v, do not want human-waiting note for safe multi-reply flow", bot.sent)
+	}
+
+	updatedSession, err := store.LoadSession("ses_multi")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if updatedSession.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = true, want false after safe follow-up handling")
+	}
+	if updatedSession.SupportState == state.SupportStateAskHuman || updatedSession.SupportState == state.SupportStateEscalated {
+		t.Fatalf("SupportState = %q, want support to stay non-human-blocking after safe follow-up handling", updatedSession.SupportState)
+	}
+	if updatedSession.ReplyAttemptCount != 2 {
+		t.Fatalf("ReplyAttemptCount = %d, want 2", updatedSession.ReplyAttemptCount)
+	}
+}
+
+func TestRuntimeHandleSessionTopicMessageMarksAskHumanWhenFollowUpQuestionRemains(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_followup",
+		ActiveRunID:    "run_followup",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+		LastGoal:       "Create a small HMTL file wich content is list file on the home",
+	}
+	run := state.Run{
+		ID:                "run_followup",
+		SessionID:         "ses_followup",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	firstQuestion := "There’s already an [`index.html`](/Users/canh/Desktop/index.html) on your Desktop. Should I overwrite that file, or create a new one like `home-files.html` instead?"
+	secondQuestion := "The remaining design decision is whether you want a static snapshot of `/Users/canh` as it exists right now, or something that tries to refresh automatically. Plain HTML can only do the first one without a server or extra scripting. Do you want the static snapshot?"
+	firstQuestionJSON := fmt.Sprintf("%q", firstQuestion)
+	secondQuestionJSON := fmt.Sprintf("%q", secondQuestion)
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeResults: []codexprovider.SessionResult{
+			{
+				ProviderSessionID: "thread-123",
+				Message:           firstQuestion,
+				RawOutput: strings.Join([]string{
+					fmt.Sprintf(`{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":%s}}`, firstQuestionJSON),
+				}, "\n"),
+			},
+			{
+				ProviderSessionID: "thread-123",
+				Message:           secondQuestion,
+				RawOutput: strings.Join([]string{
+					fmt.Sprintf(`{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":%s}}`, secondQuestionJSON),
+				}, "\n"),
+			},
+		},
+	}
+	engine := &fakePolicyEngine{
+		decision: policy.PolicyDecision{
+			Action:  roles.ActionReply,
+			Message: "Please create a new file instead of overwriting the existing `index.html`; use `home-files.html`.",
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		engine,
+		nil,
+	)
+	rt.sessionsByThread[42] = "ses_followup"
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 6,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 42,
+			Text:     "Static snapshot. Keep index.html and create a separate HTML file.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(codex.resumePrompts) != 2 {
+		t.Fatalf("resumePrompts = %v, want user answer then support follow-up", codex.resumePrompts)
+	}
+	if codex.resumePrompts[1] != "Please create a new file instead of overwriting the existing `index.html`; use `home-files.html`." {
+		t.Fatalf("second resume prompt = %q, want support clarification", codex.resumePrompts[1])
+	}
+
+	updatedSession, err := store.LoadSession("ses_followup")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if updatedSession.SupportState != state.SupportStateAskHuman {
+		t.Fatalf("SupportState = %q, want %q", updatedSession.SupportState, state.SupportStateAskHuman)
+	}
+	if !updatedSession.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+	if updatedSession.SupportDecisionSummary != secondQuestion {
+		t.Fatalf("SupportDecisionSummary = %q, want %q", updatedSession.SupportDecisionSummary, secondQuestion)
+	}
+	if !strings.HasPrefix(updatedSession.SessionTopicTitle, "❓ [codex] · project · ") {
+		t.Fatalf("SessionTopicTitle = %q, want question title", updatedSession.SessionTopicTitle)
+	}
+
+	if !sentMessagesContain(bot.sent, "Question: "+firstQuestion) {
+		t.Fatalf("sent messages = %+v, want first question", bot.sent)
+	}
+	if !sentMessagesContain(bot.sent, "Agent reply: Please create a new file instead of overwriting the existing `index.html`; use `home-files.html`.") {
+		t.Fatalf("sent messages = %+v, want agent reply note", bot.sent)
+	}
+	if !sentMessagesContain(bot.sent, "Question: "+secondQuestion) {
+		t.Fatalf("sent messages = %+v, want second question", bot.sent)
+	}
+	if !sentMessagesContain(bot.sent, "Waiting for your answer before Codex can continue.") {
+		t.Fatalf("sent messages = %+v, want explicit waiting note", bot.sent)
+	}
+}
+
+func TestRuntimeHandleSessionTopicMessageMarksAskHumanForApprovalPrompt(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_approve",
+		ActiveRunID:    "run_approve",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+		LastGoal:       "Create a small HMTL file wich content is list file on the home",
+	}
+	run := state.Run{
+		ID:                "run_approve",
+		SessionID:         "ses_approve",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	approvalPrompt := "Approaches:\n\n1. Plain unordered list\n2. Small table\n3. Styled card list\n\nRecommendation:\nUse option 3 in a minimal form.\n\nReply `approve` and I’ll create it."
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{
+		resumeResult: codexprovider.SessionResult{
+			ProviderSessionID: "thread-123",
+			Message:           approvalPrompt,
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+	rt.sessionsByThread[42] = "ses_approve"
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 7,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 42,
+			Text:     "continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	updatedSession, err := store.LoadSession("ses_approve")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if updatedSession.SupportState != state.SupportStateAskHuman {
+		t.Fatalf("SupportState = %q, want %q", updatedSession.SupportState, state.SupportStateAskHuman)
+	}
+	if !updatedSession.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+	if updatedSession.LastQuestion != approvalPrompt {
+		t.Fatalf("LastQuestion = %q, want approval prompt", updatedSession.LastQuestion)
+	}
+	if !strings.HasPrefix(updatedSession.SessionTopicTitle, "❓ [codex] · project · ") {
+		t.Fatalf("SessionTopicTitle = %q, want question title", updatedSession.SessionTopicTitle)
+	}
+	if !sentMessagesContain(bot.sent, approvalPrompt) {
+		t.Fatalf("sent messages = %+v, want approval prompt message", bot.sent)
+	}
+	if !sentMessagesContain(bot.sent, "Waiting for your answer before Codex can continue.") {
+		t.Fatalf("sent messages = %+v, want explicit waiting note", bot.sent)
 	}
 }
 
@@ -1045,7 +1430,7 @@ func TestRuntimeMaybeAutoReplyResumeFailureMarksSessionFailedWithoutReturningErr
 	if !sentMessagesContain(bot.sent, "Agent reply: Use Go's standard library testing package.") {
 		t.Fatalf("sent messages = %+v, want agent reply note", bot.sent)
 	}
-	if !sentMessagesContainSubstring(bot.sent, "Support replied in 🟢 [codex] · project · #0001") || !sentMessagesContainSubstring(bot.sent, "Use Go's standard library testing package.") {
+	if !sentMessagesContainSubstring(bot.sent, "Support replied in ⚪ [codex] · project · #0001") || !sentMessagesContainSubstring(bot.sent, "Use Go's standard library testing package.") {
 		t.Fatalf("sent messages = %+v, want reply awareness", bot.sent)
 	}
 	if !sentMessagesContainSubstring(bot.sent, "Support escalated in ❌ [codex] · project · #0001") || !sentMessagesContainSubstring(bot.sent, "unexpected status 413 Payload Too Large") {
@@ -1155,6 +1540,94 @@ func TestRuntimeMaybeAutoReplyPolicyErrorEscalatesWithoutFailingSession(t *testi
 	}
 	if sentMessagesContainSubstring(bot.sent, "start failed:") {
 		t.Fatalf("sent messages = %+v, do not want session start failure", bot.sent)
+	}
+}
+
+func TestRuntimeMaybeAutoReplyQuestionNeedingHumanDoesNotResumeAgent(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	session := state.Session{
+		ID:             "ses_human",
+		ActiveRunID:    "run_human",
+		Provider:       "codex",
+		WorkRoot:       "/tmp/project",
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		Status:         state.SessionStatusRunning,
+		Phase:          state.SessionPhasePlanning,
+		LastGoal:       "create a home listing page",
+	}
+	run := state.Run{
+		ID:                "run_human",
+		SessionID:         "ses_human",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}
+	if err := store.SaveSession(session); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	codex := &fakeCodexSessionRunner{}
+	engine := &fakePolicyEngine{
+		decision: policy.PolicyDecision{
+			Action:  roles.ActionReply,
+			Message: "Please choose one:\n1. a static HTML snapshot, or\n2. an HTML page plus a small script you can rerun later.",
+		},
+	}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		engine,
+		nil,
+	)
+
+	err := rt.maybeAutoReplyForEvent(context.Background(), -1001234567890, 42, &session, run, events.NormalizedEvent{
+		EventType: events.EventTypeQuestion,
+		Summary:   "Do you want a static snapshot or something that refreshes later?",
+		Timestamp: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("maybeAutoReplyForEvent() error = %v, want nil", err)
+	}
+
+	if codex.resumeSessionID != "" {
+		t.Fatalf("resumeSessionID = %q, want no auto-resume when human input is still needed", codex.resumeSessionID)
+	}
+	if codex.resumePrompt != "" {
+		t.Fatalf("resumePrompt = %q, want empty because support should not auto-reply", codex.resumePrompt)
+	}
+
+	updatedSession, err := store.LoadSession("ses_human")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if updatedSession.SupportState != state.SupportStateAskHuman {
+		t.Fatalf("SupportState = %q, want %q", updatedSession.SupportState, state.SupportStateAskHuman)
+	}
+	if !updatedSession.HumanActionNeeded {
+		t.Fatal("HumanActionNeeded = false, want true")
+	}
+	if updatedSession.SupportDecisionSummary == "" {
+		t.Fatal("SupportDecisionSummary = empty, want saved support handoff")
+	}
+	if sentMessagesContainSubstring(bot.sent, "Agent reply:") {
+		t.Fatalf("sent messages = %+v, do not want agent auto-reply note", bot.sent)
 	}
 }
 
@@ -1639,6 +2112,77 @@ func TestRuntimeHandleGeneralStatusShowsNoActiveSessions(t *testing.T) {
 	}
 }
 
+func TestRuntimeHandleGeneralStatusAcknowledgesWhenControlCardIsUnchanged(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	update := telegram.Update{
+		UpdateID: 41,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/status",
+		},
+	}
+	if err := rt.HandleUpdate(context.Background(), update); err != nil {
+		t.Fatalf("first HandleUpdate() error = %v", err)
+	}
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages after first status = %d, want 1 control card", len(bot.sent))
+	}
+
+	bot.editMessageErrors = map[int]error{
+		bot.sent[0].messageID: errors.New(`telegram api error 400: {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}`),
+	}
+
+	restarted := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+	if err := restarted.HandleUpdate(context.Background(), update); err != nil {
+		t.Fatalf("second HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 2 {
+		t.Fatalf("sent messages after unchanged status = %d, want control card + acknowledgement", len(bot.sent))
+	}
+	if bot.sent[1].text != "General control room is already up to date." {
+		t.Fatalf("ack text = %q, want up-to-date acknowledgement", bot.sent[1].text)
+	}
+	if bot.sent[1].markup != nil {
+		t.Fatal("ack markup != nil, want plain acknowledgement message")
+	}
+}
+
 func TestRuntimeHandleGeneralStatusFallsBackToSessionSupportStateWithoutSnapshot(t *testing.T) {
 	store := state.NewStore(t.TempDir())
 	if err := store.Init(); err != nil {
@@ -1707,6 +2251,73 @@ func TestRuntimeHandleGeneralStatusFallsBackToSessionSupportStateWithoutSnapshot
 	}
 	if !strings.Contains(bot.sent[0].text, "Needs you now: yes") {
 		t.Fatalf("control card text = %q, want fallback human action marker", bot.sent[0].text)
+	}
+}
+
+func TestRuntimeHandleGeneralStatusShowsIdleWhenLatestRunHasExited(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if err := store.SaveSession(state.Session{
+		ID:                "ses_idle",
+		ActiveRunID:       "run_idle",
+		Provider:          "codex",
+		GeneralTopicID:    1,
+		SessionTopicID:    46,
+		SessionTopicTitle: "Topic Idle",
+		Status:            state.SessionStatusRunning,
+		Phase:             state.SessionPhasePlanning,
+		LastGoal:          "check local HTML output",
+		WorkRoot:          "/tmp/project-idle",
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+	if err := store.SaveRun(state.Run{
+		ID:                "run_idle",
+		SessionID:         "ses_idle",
+		Provider:          "codex",
+		ProviderSessionID: "thread-123",
+		Status:            state.RunStatusExited,
+	}); err != nil {
+		t.Fatalf("SaveRun() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	err := rt.HandleUpdate(context.Background(), telegram.Update{
+		UpdateID: 44,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/status",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages = %d, want 1 control card", len(bot.sent))
+	}
+	if !strings.Contains(bot.sent[0].text, "Topic Idle | codex | idle") {
+		t.Fatalf("control card text = %q, want idle session summary", bot.sent[0].text)
 	}
 }
 

@@ -65,6 +65,23 @@ func TestParseTranscriptLineQuestion(t *testing.T) {
 	}
 }
 
+func TestParseTranscriptLineApprovalNeeded(t *testing.T) {
+	line := []byte(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Approaches:\n\n1. Plain unordered list\n2. Small table\n3. Styled card list\n\nRecommendation:\nUse option 3 in a minimal form.\n\nReply \u0060approve\u0060 and I’ll create it."}]}`)
+	ts := time.Date(2026, 3, 21, 10, 0, 0, 0, time.UTC)
+
+	a := codex.New("ses_001", "run_001")
+	obs, ok, err := a.ParseTranscriptLine(ts, line)
+	if err != nil {
+		t.Fatalf("ParseTranscriptLine() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ParseTranscriptLine() ok = false, want true")
+	}
+	if obs.RawType != "approval_needed" {
+		t.Errorf("RawType = %q, want approval_needed", obs.RawType)
+	}
+}
+
 func TestParseTranscriptLineBlocked(t *testing.T) {
 	line := []byte(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I'm stuck because the test command is failing with a permission error."}]}`)
 	ts := time.Date(2026, 3, 21, 10, 0, 0, 0, time.UTC)

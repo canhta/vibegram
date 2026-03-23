@@ -179,7 +179,7 @@ func (r *Runtime) syncSessionTopicTitle(ctx context.Context, chatID int64, threa
 		return nil
 	}
 
-	title := desiredSessionTopicTitle(*session)
+	title := desiredSessionTopicTitle(r.displaySession(*session))
 	if title == "" || strings.TrimSpace(session.SessionTopicTitle) == title {
 		return nil
 	}

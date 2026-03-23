@@ -93,7 +93,12 @@ func (a *App) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			return err
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(500 * time.Millisecond):
+				continue
+			}
 		}
 
 		if len(updates) == 0 {

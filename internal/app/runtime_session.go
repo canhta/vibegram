@@ -233,6 +233,28 @@ func (r *Runtime) maybeAutoReply(ctx context.Context, chatID int64, threadID int
 }
 
 func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, threadID int, session *state.Session, run state.Run, event events.NormalizedEvent) error {
+	if event.EventType == events.EventTypeApprovalNeeded {
+		snap, err := r.loadSessionSnapshot(*session)
+		if err != nil {
+			return err
+		}
+		if err := r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateAskHuman, event.Summary, true); err != nil {
+			return err
+		}
+		return r.sendSessionMessage(ctx, chatID, threadID, session, waitingForHumanReply(session.Provider))
+	}
+
+	if event.EventType == events.EventTypeQuestion && questionNeedsHumanChoice(event.Summary) {
+		snap, err := r.loadSessionSnapshot(*session)
+		if err != nil {
+			return err
+		}
+		if err := r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateAskHuman, event.Summary, true); err != nil {
+			return err
+		}
+		return r.sendSessionMessage(ctx, chatID, threadID, session, waitingForHumanReply(session.Provider))
+	}
+
 	if r.policy == nil {
 		return nil
 	}
@@ -259,6 +281,9 @@ func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, thre
 	case roles.ActionReply:
 		if strings.TrimSpace(decision.Message) == "" {
 			return nil
+		}
+		if supportReplyNeedsHumanInput(decision.Message) {
+			return r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateAskHuman, decision.Message, true)
 		}
 		if err := r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateReplied, decision.Message, false); err != nil {
 			return err
@@ -298,7 +323,7 @@ func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, thre
 		if err := r.store.SaveSession(*session); err != nil {
 			return fmt.Errorf("save auto-reply session: %w", err)
 		}
-		return r.deliverSessionResult(ctx, chatID, threadID, session, replyRun, replyResult, nil, false)
+		return r.deliverSessionResult(ctx, chatID, threadID, session, replyRun, replyResult, nil, true)
 	case roles.ActionEscalate:
 		summary := strings.TrimSpace(decision.Reason)
 		if summary == "" {
@@ -307,6 +332,77 @@ func (r *Runtime) maybeAutoReplyForEvent(ctx context.Context, chatID int64, thre
 		return r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateEscalated, summary, true)
 	default:
 		return nil
+	}
+}
+
+func supportReplyNeedsHumanInput(message string) bool {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" {
+		return false
+	}
+
+	humanChoiceSignals := []string{
+		"please choose",
+		"choose one",
+		"pick one",
+		"pick between",
+		"let me know which",
+		"do you want",
+		"would you like",
+		"which do you want",
+		"what do you want",
+		"reply approve",
+		"say approve",
+		"once you approve",
+		"if you approve",
+		"need your approval",
+	}
+	for _, signal := range humanChoiceSignals {
+		if strings.Contains(lower, signal) {
+			return true
+		}
+	}
+
+	if strings.Contains(lower, "\n1.") && strings.Contains(lower, "\n2.") {
+		return true
+	}
+	return strings.Contains(lower, "?")
+}
+
+func questionNeedsHumanChoice(message string) bool {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" {
+		return false
+	}
+
+	humanChoiceSignals := []string{
+		"do you want me to",
+		"do you want ",
+		"would you like me to",
+		"would you like ",
+		"which do you want",
+		"what do you want me to",
+		"choose one",
+		"pick one",
+		"let me know which",
+	}
+	for _, signal := range humanChoiceSignals {
+		if strings.Contains(lower, signal) {
+			return true
+		}
+	}
+
+	return strings.Contains(lower, "replace") && (strings.Contains(lower, " or keep ") || strings.Contains(lower, " or create "))
+}
+
+func waitingForHumanReply(provider string) string {
+	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case "codex":
+		return "Waiting for your answer before Codex can continue."
+	case "claude":
+		return "Waiting for your answer before Claude can continue."
+	default:
+		return "Waiting for your answer before the agent can continue."
 	}
 }
 

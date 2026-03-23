@@ -495,3 +495,70 @@ func TestAppRunKeepsPollingWhenSessionTopicIsGone(t *testing.T) {
 		t.Fatalf("session status = %q, want %q", session.Status, state.SessionStatusFailed)
 	}
 }
+
+func TestAppRunRetriesTransientTelegramPollError(t *testing.T) {
+	root := t.TempDir()
+	store := state.NewStore(root)
+	bot := &fakeBotClient{
+		getUpdatesErrors: []error{errors.New("read tcp 127.0.0.1:1234->149.154.167.220:443: read: can't assign requested address")},
+		updates: []telegram.Update{
+			{
+				UpdateID: 1,
+				Message: telegram.UpdateMessage{
+					UserID:   1001,
+					ChatID:   -1001234567890,
+					ThreadID: 1,
+					Text:     "/status",
+				},
+			},
+		},
+	}
+
+	app := &App{
+		cfg: config.Config{
+			Telegram: config.TelegramConfig{
+				BotToken:    "telegram-token",
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Runtime: config.RuntimeConfig{
+				WorkRoot: root,
+				StateDir: root,
+			},
+		},
+		store: store,
+		bot:   bot,
+		codex: &fakeCodexSessionRunner{},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- app.Run(ctx)
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for len(bot.sentSnapshot()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() error = %v, want nil after transient poll error", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run() did not stop after cancellation")
+	}
+
+	sent := bot.sentSnapshot()
+	if len(sent) == 0 {
+		t.Fatal("expected a Telegram reply after retrying the transient poll error")
+	}
+	if !strings.Contains(sent[0].text, "General control room") {
+		t.Fatalf("status card = %q, want control-room summary after retry", sent[0].text)
+	}
+}

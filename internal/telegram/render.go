@@ -49,7 +49,7 @@ func Render(event events.NormalizedEvent) string {
 }
 
 func summaryLimit(eventType events.EventType) int {
-	if eventType == events.EventTypeQuestion {
+	if eventType == events.EventTypeQuestion || eventType == events.EventTypeApprovalNeeded {
 		return maxMessageLen
 	}
 	return maxSummaryLen

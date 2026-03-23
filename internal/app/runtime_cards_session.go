@@ -96,7 +96,7 @@ func (r *Runtime) upsertSessionHeaderCard(ctx context.Context, chatID int64, thr
 		return err
 	}
 
-	text := renderSessionHeaderCard(*session)
+	text := renderSessionHeaderCard(r.displaySession(*session))
 	markup := telegram.InlineKeyboardMarkup{}
 	if session.SessionHeaderMessageID == 0 {
 		if !createIfMissing {
@@ -142,7 +142,7 @@ func renderSessionHeaderCard(session state.Session) string {
 }
 
 func sessionStateLabel(session state.Session) string {
-	status := strings.TrimSpace(string(session.Status))
+	status := sessionDisplayStatusLabel(session)
 	phase := strings.TrimSpace(string(session.Phase))
 	if status == "" {
 		status = "unknown"
@@ -187,6 +187,40 @@ func yesNo(v bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+func (r *Runtime) displaySession(session state.Session) state.Session {
+	display := session
+	if strings.TrimSpace(string(session.Status)) == string(state.SessionStatusDone) ||
+		strings.TrimSpace(string(session.Status)) == string(state.SessionStatusFailed) {
+		return display
+	}
+
+	if strings.TrimSpace(string(session.ActiveRunID)) == "" || r.store == nil {
+		return display
+	}
+
+	run, err := r.store.LoadRun(session.ActiveRunID)
+	if err != nil {
+		return display
+	}
+	if run.Status != state.RunStatusActive {
+		display.Phase = state.SessionPhaseWaiting
+	}
+	return display
+}
+
+func sessionDisplayStatusLabel(session state.Session) string {
+	status := strings.TrimSpace(string(session.Status))
+	if status == "" {
+		return ""
+	}
+	if status == string(state.SessionStatusRunning) &&
+		strings.TrimSpace(string(session.Phase)) == string(state.SessionPhaseWaiting) &&
+		!session.HumanActionNeeded {
+		return "idle"
+	}
+	return status
 }
 
 func (r *Runtime) maybeSendSupportAwareness(ctx context.Context, chatID int64, session state.Session, supportState state.SupportState, summary string) error {

@@ -45,6 +45,8 @@ func (s *Snapshot) Apply(event events.NormalizedEvent) {
 		s.EscalationState = ""
 	case events.EventTypeQuestion:
 		s.LastQuestion = event.Summary
+	case events.EventTypeApprovalNeeded:
+		s.LastQuestion = event.Summary
 	case events.EventTypeFilesChanged:
 		s.RecentFilesSummary = event.Summary
 	case events.EventTypeTestsChanged:

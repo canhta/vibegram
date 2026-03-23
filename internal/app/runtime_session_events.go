@@ -82,13 +82,14 @@ func (r *Runtime) deliverSessionResult(ctx context.Context, chatID int64, thread
 		if message == "" {
 			return r.sendSessionMessage(ctx, chatID, threadID, session, "Sent to "+session.Provider+". No visible reply yet.")
 		}
+		rawType := codexprovider.ClassifyText(message)
 		if err := r.sendSessionMessage(ctx, chatID, threadID, session, message); err != nil {
 			return err
 		}
-		if allowAutoReply {
+		if allowAutoReply && rawType != "" {
 			return r.maybeAutoReply(ctx, chatID, threadID, session, run, message)
 		}
-		return nil
+		return r.clearResolvedSupportState(ctx, chatID, threadID, session)
 	}
 
 	if message != "" && !messageCoveredByEvents(message, normalized) {
@@ -97,8 +98,14 @@ func (r *Runtime) deliverSessionResult(ctx context.Context, chatID int64, thread
 		}
 	}
 
-	if allowAutoReply && hasActionable {
-		return r.maybeAutoReplyForEvent(ctx, chatID, threadID, session, run, actionable)
+	if hasActionable {
+		if allowAutoReply {
+			return r.maybeAutoReplyForEvent(ctx, chatID, threadID, session, run, actionable)
+		}
+		return r.markActionableEventWaitingForHuman(ctx, chatID, threadID, session, actionable)
+	}
+	if err := r.clearResolvedSupportState(ctx, chatID, threadID, session); err != nil {
+		return err
 	}
 	return nil
 }
@@ -246,7 +253,7 @@ func (r *Runtime) retireMissingSessionTopic(ctx context.Context, chatID int64, s
 
 func firstActionableEvent(eventsList []events.NormalizedEvent) (events.NormalizedEvent, bool) {
 	for _, event := range eventsList {
-		if event.EventType == events.EventTypeQuestion || event.EventType == events.EventTypeBlocked {
+		if event.EventType == events.EventTypeQuestion || event.EventType == events.EventTypeBlocked || event.EventType == events.EventTypeApprovalNeeded {
 			return event, true
 		}
 	}
@@ -264,4 +271,42 @@ func messageCoveredByEvents(message string, eventsList []events.NormalizedEvent)
 		}
 	}
 	return false
+}
+
+func (r *Runtime) markActionableEventWaitingForHuman(ctx context.Context, chatID int64, threadID int, session *state.Session, event events.NormalizedEvent) error {
+	if session == nil {
+		return nil
+	}
+
+	switch event.EventType {
+	case events.EventTypeQuestion, events.EventTypeBlocked, events.EventTypeApprovalNeeded:
+		snap, err := r.loadSessionSnapshot(*session)
+		if err != nil {
+			return err
+		}
+		if err := r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateAskHuman, event.Summary, true); err != nil {
+			return err
+		}
+		return r.sendSessionMessage(ctx, chatID, threadID, session, waitingForHumanReply(session.Provider))
+	default:
+		return nil
+	}
+}
+
+func (r *Runtime) clearResolvedSupportState(ctx context.Context, chatID int64, threadID int, session *state.Session) error {
+	if session == nil {
+		return nil
+	}
+	if (session.SupportState == "" || session.SupportState == state.SupportStateIdle) && !session.HumanActionNeeded && strings.TrimSpace(session.SupportDecisionSummary) == "" {
+		return nil
+	}
+
+	snap, err := r.loadSessionSnapshot(*session)
+	if err != nil {
+		return err
+	}
+	if (strings.TrimSpace(snap.SupportState) == "" || strings.TrimSpace(snap.SupportState) == string(state.SupportStateIdle)) && !snap.HumanActionNeeded && strings.TrimSpace(snap.SupportDecisionSummary) == "" {
+		return nil
+	}
+	return r.applySupportDecision(ctx, chatID, threadID, session, snap, state.SupportStateIdle, "", false)
 }

@@ -108,3 +108,28 @@ func TestDeduperSuppressesReplayOfSameLogicalEvent(t *testing.T) {
 		t.Fatal("second MarkIfNew() = true, want false")
 	}
 }
+
+func TestDeduperSuppressesSameQuestionSummaryInSameRunEvenWithDifferentDeliveryKeys(t *testing.T) {
+	deduper := events.NewDeduper()
+	first := events.NormalizedEvent{
+		SessionID:   "ses_123",
+		RunID:       "run_123",
+		EventType:   events.EventTypeQuestion,
+		DeliveryKey: "ses_123:question:item_1",
+		Summary:     "Do you want me to replace index.html or create a separate file?",
+	}
+	second := events.NormalizedEvent{
+		SessionID:   "ses_123",
+		RunID:       "run_123",
+		EventType:   events.EventTypeQuestion,
+		DeliveryKey: "ses_123:question:item_2",
+		Summary:     "Do you want me to replace index.html or create a separate file?",
+	}
+
+	if !deduper.MarkIfNew(first) {
+		t.Fatal("first MarkIfNew() = false, want true")
+	}
+	if deduper.MarkIfNew(second) {
+		t.Fatal("second MarkIfNew() = true, want false for same-question replay in same run")
+	}
+}
