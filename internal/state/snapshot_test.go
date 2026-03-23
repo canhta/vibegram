@@ -95,6 +95,24 @@ func TestSnapshotApplyBlockedIncrementsReplyAttemptCount(t *testing.T) {
 	}
 }
 
+func TestSnapshotApplyBlockerResolvedClearsBlockerState(t *testing.T) {
+	s := &Snapshot{
+		LastBlocker:       "missing token",
+		ReplyAttemptCount: 3,
+		EscalationState:   "needed",
+	}
+	s.Apply(makeEvent(events.EventTypeBlockerResolved, "token added"))
+	if s.LastBlocker != "" {
+		t.Errorf("expected LastBlocker to be cleared, got %q", s.LastBlocker)
+	}
+	if s.ReplyAttemptCount != 0 {
+		t.Errorf("expected ReplyAttemptCount=0, got %d", s.ReplyAttemptCount)
+	}
+	if s.EscalationState != "" {
+		t.Errorf("expected EscalationState to be cleared, got %q", s.EscalationState)
+	}
+}
+
 func TestSnapshotApplyNonBlockedResetsReplyAttemptCount(t *testing.T) {
 	s := &Snapshot{ReplyAttemptCount: 5}
 	s.Apply(makeEvent(events.EventTypePhaseChanged, "editing"))

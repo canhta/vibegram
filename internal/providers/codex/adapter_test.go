@@ -82,6 +82,23 @@ func TestParseTranscriptLineBlocked(t *testing.T) {
 	}
 }
 
+func TestParseTranscriptLineBlockerResolved(t *testing.T) {
+	line := []byte(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I resolved the blocker by adding the missing API token, and I can continue now."}]}`)
+	ts := time.Date(2026, 3, 21, 10, 0, 0, 0, time.UTC)
+
+	a := codex.New("ses_001", "run_001")
+	obs, ok, err := a.ParseTranscriptLine(ts, line)
+	if err != nil {
+		t.Fatalf("ParseTranscriptLine() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ParseTranscriptLine() ok = false, want true")
+	}
+	if obs.RawType != "blocker_resolved" {
+		t.Errorf("RawType = %q, want blocker_resolved", obs.RawType)
+	}
+}
+
 func TestParseTranscriptLineCommandExecutionCompleted(t *testing.T) {
 	line := []byte(`{"type":"item.completed","item":{"id":"item_3","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"/tmp/project\n","exit_code":0,"status":"completed"}}`)
 	ts := time.Date(2026, 3, 21, 10, 0, 0, 0, time.UTC)

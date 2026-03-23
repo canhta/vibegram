@@ -35,6 +35,10 @@ func (s *Snapshot) Apply(event events.NormalizedEvent) {
 		if s.ReplyAttemptCount >= 3 {
 			s.EscalationState = "needed"
 		}
+	case events.EventTypeBlockerResolved:
+		s.LastBlocker = ""
+		s.ReplyAttemptCount = 0
+		s.EscalationState = ""
 	case events.EventTypeQuestion:
 		s.LastQuestion = event.Summary
 	case events.EventTypeFilesChanged:

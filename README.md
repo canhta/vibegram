@@ -4,7 +4,7 @@ Run Codex and Claude Code from Telegram without drowning in terminal spam.
 
 `vibegram` turns a Telegram Forum into a quiet control room for coding agents:
 
-- one `General` topic to start work and see status
+- one `General` topic for awareness and control-room entry points
 - one topic per active coding session
 - filtered, human-readable updates instead of raw transcript noise
 - local-first daemon, good for your laptop or a small Ubuntu VPS
@@ -16,9 +16,10 @@ You ask for a task, then get buried in `rg`, `sed`, `cat`, and shell chatter.
 
 `vibegram` keeps the useful parts:
 
-- what started
+- what just started
 - what changed
 - what is blocked
+- what got unblocked
 - what needs your answer
 - what finished
 
@@ -65,6 +66,9 @@ flowchart LR
 - one local daemon that owns state, routing, and provider runs
 - direct process runner first
 - `systemd` as the default VPS story
+
+`General` is for awareness, not the active loop of a session.
+Major lifecycle and escalation updates appear there so an operator can catch up quickly, but follow-up work stays in the session topic.
 
 ## Current status
 

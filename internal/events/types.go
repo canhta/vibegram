@@ -26,17 +26,18 @@ const (
 )
 
 const (
-	EventTypeSessionStarted EventType = "session_started"
-	EventTypePhaseChanged   EventType = "phase_changed"
-	EventTypeToolActivity   EventType = "tool_activity"
-	EventTypeFilesChanged   EventType = "files_changed"
-	EventTypeTestsChanged   EventType = "tests_changed"
-	EventTypeQuestion       EventType = "question"
-	EventTypeBlocked        EventType = "blocked"
-	EventTypeApprovalNeeded EventType = "approval_needed"
-	EventTypeAgentReplySent EventType = "agent_reply_sent"
-	EventTypeDone           EventType = "done"
-	EventTypeFailed         EventType = "failed"
+	EventTypeSessionStarted  EventType = "session_started"
+	EventTypePhaseChanged    EventType = "phase_changed"
+	EventTypeToolActivity    EventType = "tool_activity"
+	EventTypeFilesChanged    EventType = "files_changed"
+	EventTypeTestsChanged    EventType = "tests_changed"
+	EventTypeQuestion        EventType = "question"
+	EventTypeBlocked         EventType = "blocked"
+	EventTypeBlockerResolved EventType = "blocker_resolved"
+	EventTypeApprovalNeeded  EventType = "approval_needed"
+	EventTypeAgentReplySent  EventType = "agent_reply_sent"
+	EventTypeDone            EventType = "done"
+	EventTypeFailed          EventType = "failed"
 )
 
 const (

@@ -35,6 +35,7 @@ func (e *Engine) Evaluate(ctx context.Context, snap state.Snapshot, event events
 		events.EventTypeFilesChanged,
 		events.EventTypeTestsChanged,
 		events.EventTypeSessionStarted,
+		events.EventTypeBlockerResolved,
 		events.EventTypeAgentReplySent:
 		return PolicyDecision{Action: roles.ActionNoop}, nil
 

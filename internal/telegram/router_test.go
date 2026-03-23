@@ -72,6 +72,14 @@ func TestRouteBlockedToBothTopics(t *testing.T) {
 	}
 }
 
+func TestRouteBlockerResolvedToBothTopics(t *testing.T) {
+	r := makeRouter()
+	dests := r.Route(routerEv(events.EventTypeBlockerResolved))
+	if len(dests) != 2 {
+		t.Fatalf("expected 2 destinations for blocker_resolved, got %d", len(dests))
+	}
+}
+
 func TestRouteDoneToBothTopics(t *testing.T) {
 	r := makeRouter()
 	dests := r.Route(routerEv(events.EventTypeDone))

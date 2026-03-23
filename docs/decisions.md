@@ -36,9 +36,10 @@ This file records the major product and engineering decisions already made.
 
 1. General topic is the control room
 2. Session topics are the working rooms
-3. General topic receives new session, blocked, done, failed, and critical escalation events
-4. Session topics receive important session events and automation notes
-5. Session creation starts with a slash-only `/new` draft in General; once provider, folder, and task are set, the next task message creates the session topic and launches the run directly
+3. General topic is awareness-first; it receives concise summary events, not routine session follow-up
+4. General topic receives new session, needs human or unblock requested, blocker resolved, done, failed, and critical escalation events
+5. Session topics receive important session events, automation notes, routine support exchange, and all follow-up actions for that session
+6. Session creation starts with a slash-only `/new` draft in General; once provider, folder, and task are set, the next task message creates the session topic and launches the run directly
 
 ## Context and memory
 
