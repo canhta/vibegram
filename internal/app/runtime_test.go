@@ -2046,8 +2046,8 @@ func TestRuntimeHandleGeneralStatusCreatesAndRefreshesPersistentControlCard(t *t
 		t.Fatalf("HandleUpdate() after restart error = %v", err)
 	}
 
-	if len(bot.sent) != 1 {
-		t.Fatalf("sent messages after restart = %d, want 1 create and 1 refresh", len(bot.sent))
+	if len(bot.sent) != 2 {
+		t.Fatalf("sent messages after restart = %d, want control card + acknowledgement", len(bot.sent))
 	}
 	if len(bot.edited) != 1 {
 		t.Fatalf("edited messages after restart = %d, want 1 refresh", len(bot.edited))
@@ -2057,6 +2057,12 @@ func TestRuntimeHandleGeneralStatusCreatesAndRefreshesPersistentControlCard(t *t
 	}
 	if !strings.Contains(bot.edited[0].text, "General control room") {
 		t.Fatalf("edited control card text = %q, want title", bot.edited[0].text)
+	}
+	if bot.sent[1].text != "General control room updated." {
+		t.Fatalf("ack text = %q, want updated acknowledgement", bot.sent[1].text)
+	}
+	if bot.sent[1].markup != nil {
+		t.Fatal("ack markup != nil, want plain acknowledgement message")
 	}
 }
 
@@ -2177,6 +2183,104 @@ func TestRuntimeHandleGeneralStatusAcknowledgesWhenControlCardIsUnchanged(t *tes
 	}
 	if bot.sent[1].text != "General control room is already up to date." {
 		t.Fatalf("ack text = %q, want up-to-date acknowledgement", bot.sent[1].text)
+	}
+	if bot.sent[1].markup != nil {
+		t.Fatal("ack markup != nil, want plain acknowledgement message")
+	}
+}
+
+func TestRuntimeHandleGeneralStatusAcknowledgesWhenControlCardIsEdited(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if err := store.SaveSession(state.Session{
+		ID:                "ses_1",
+		ActiveRunID:       "run_1",
+		Provider:          "codex",
+		GeneralTopicID:    1,
+		SessionTopicID:    42,
+		SessionTopicTitle: "Topic Alpha",
+		Status:            state.SessionStatusRunning,
+		Phase:             state.SessionPhaseEditing,
+		LastGoal:          "tighten launch flow",
+		WorkRoot:          "/tmp/project",
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{}
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+
+	update := telegram.Update{
+		UpdateID: 51,
+		Message: telegram.UpdateMessage{
+			UserID:   1001,
+			ChatID:   -1001234567890,
+			ThreadID: 1,
+			Text:     "/status",
+		},
+	}
+	if err := rt.HandleUpdate(context.Background(), update); err != nil {
+		t.Fatalf("first HandleUpdate() error = %v", err)
+	}
+	if len(bot.sent) != 1 {
+		t.Fatalf("sent messages after first status = %d, want 1 control card", len(bot.sent))
+	}
+
+	if err := store.SaveSnapshot("ses_1", state.Snapshot{
+		SessionID:              "ses_1",
+		Phase:                  string(state.SessionPhaseEditing),
+		Status:                 string(state.SessionStatusRunning),
+		LastQuestion:           "which branch should we ship?",
+		SupportState:           string(state.SupportStateAskHuman),
+		SupportDecisionSummary: "choose the release branch before shipping",
+		HumanActionNeeded:      true,
+		UpdatedAt:              time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("SaveSnapshot() error = %v", err)
+	}
+
+	restarted := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+		},
+		store,
+		bot,
+		&fakeCodexSessionRunner{},
+		nil,
+		nil,
+		nil,
+	)
+	if err := restarted.HandleUpdate(context.Background(), update); err != nil {
+		t.Fatalf("second HandleUpdate() error = %v", err)
+	}
+
+	if len(bot.edited) != 1 {
+		t.Fatalf("edited messages after changed status = %d, want 1", len(bot.edited))
+	}
+	if len(bot.sent) != 2 {
+		t.Fatalf("sent messages after changed status = %d, want control card + acknowledgement", len(bot.sent))
+	}
+	if bot.sent[1].text != "General control room updated." {
+		t.Fatalf("ack text = %q, want updated acknowledgement", bot.sent[1].text)
 	}
 	if bot.sent[1].markup != nil {
 		t.Fatal("ack markup != nil, want plain acknowledgement message")

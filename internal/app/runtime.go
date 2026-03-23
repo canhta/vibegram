@@ -162,6 +162,9 @@ func (r *Runtime) handleGeneralStatus(ctx context.Context, chatID int64) error {
 	if err != nil {
 		return err
 	}
+	if result == generalControlCardRefreshEdited {
+		return r.bot.SendMessage(ctx, chatID, nil, "General control room updated.")
+	}
 	if result == generalControlCardRefreshUnchanged {
 		return r.bot.SendMessage(ctx, chatID, nil, "General control room is already up to date.")
 	}
