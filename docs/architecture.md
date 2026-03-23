@@ -13,7 +13,7 @@ The product shape is intentionally small:
 The human should not babysit raw terminal output.
 `vibegram` exists to keep Telegram quiet and useful:
 
-- `General` is where you create work, see status, and clean up
+- `General` is where you create work, see status, clean up, and scan awareness-level session updates
 - session topics are where an active Codex or Claude run lives
 - the daemon turns noisy provider activity into a small set of readable Telegram updates
 
@@ -48,21 +48,27 @@ flowchart TD
 
 ### General topic
 
-`General` is the control room.
-It is not just another thread.
+`General` is the control room and awareness board.
+It is not the active loop for any one session.
 
 What belongs there:
 
 - `/new`
 - `/status`
 - `/cleanup`
-- light support chat
 - session creation
-- blocked, done, failed, and critical alerts
+- concise awareness posts for new session, needs human or unblock requested, blocker resolved, done, failed, and critical escalation
+
+What does not belong there:
+
+- routine support back-and-forth
+- detailed unblock discussion
+- per-session follow-up actions once a session topic exists
 
 ### Session topics
 
 Each session topic maps to one app-owned session.
+The active loop stays here.
 
 Identity model:
 
@@ -71,6 +77,14 @@ topic_id -> session_id -> run_id -> provider metadata
 ```
 
 A session topic is durable even if the provider process changes underneath it.
+
+What belongs in a session topic:
+
+- task progress that matters
+- support exchange for that session
+- detailed blocker context
+- human replies needed to unblock work
+- the follow-up after a blocker is cleared
 
 ## Session lifecycle
 
@@ -108,6 +122,7 @@ The daemon reduces provider output into a small set of meaningful Telegram-visib
 
 - question
 - blocked
+- blocker resolved
 - failed
 - final useful reply
 - selected command activity that matters to a human

@@ -651,8 +651,14 @@ func TestRuntimeHandleSessionTopicMessageRendersFilteredCodexEvents(t *testing.T
 	if bot.sent[0].text != "Tool: shell — go test ./..." {
 		t.Fatalf("sent text[0] = %q", bot.sent[0].text)
 	}
+	if bot.sent[0].threadID == nil || *bot.sent[0].threadID != 42 {
+		t.Fatalf("sent thread[0] = %v, want session topic 42", bot.sent[0].threadID)
+	}
 	if bot.sent[1].text != "Question: Which test framework should I use?" {
 		t.Fatalf("sent text[1] = %q", bot.sent[1].text)
+	}
+	if bot.sent[1].threadID == nil || *bot.sent[1].threadID != 42 {
+		t.Fatalf("sent thread[1] = %v, want session topic 42", bot.sent[1].threadID)
 	}
 }
 

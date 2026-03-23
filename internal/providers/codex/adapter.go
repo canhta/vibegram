@@ -169,6 +169,23 @@ func ClassifyText(text string) string {
 		return ""
 	}
 
+	blockerResolvedPhrases := []string{
+		"resolved the blocker",
+		"blocker is resolved",
+		"blocker was resolved",
+		"i'm unblocked",
+		"i am unblocked",
+		"unblocked now",
+	}
+	for _, phrase := range blockerResolvedPhrases {
+		if strings.Contains(lower, phrase) {
+			return "blocker_resolved"
+		}
+	}
+	if strings.Contains(lower, "can continue now") && (strings.Contains(lower, "resolved") || strings.Contains(lower, "fixed")) {
+		return "blocker_resolved"
+	}
+
 	blockedPhrases := []string{
 		"i'm stuck", "i am stuck",
 		"i'm blocked", "i am blocked",

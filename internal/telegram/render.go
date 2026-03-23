@@ -24,6 +24,8 @@ func Render(event events.NormalizedEvent) string {
 		text = fmt.Sprintf("Session started: %s", summary)
 	case events.EventTypeBlocked:
 		text = fmt.Sprintf("Blocked: %s", summary)
+	case events.EventTypeBlockerResolved:
+		text = fmt.Sprintf("Blocker resolved: %s", summary)
 	case events.EventTypeQuestion:
 		text = fmt.Sprintf("Question: %s", summary)
 	case events.EventTypeDone:

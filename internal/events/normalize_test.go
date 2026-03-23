@@ -57,6 +57,7 @@ func TestNormalizeSupportsBalancedEventSet(t *testing.T) {
 		{rawType: "tests_changed", want: events.EventTypeTestsChanged},
 		{rawType: "question", want: events.EventTypeQuestion},
 		{rawType: "blocked", want: events.EventTypeBlocked},
+		{rawType: "blocker_resolved", want: events.EventTypeBlockerResolved},
 		{rawType: "approval_needed", want: events.EventTypeApprovalNeeded},
 		{rawType: "agent_reply_sent", want: events.EventTypeAgentReplySent},
 		{rawType: "done", want: events.EventTypeDone},

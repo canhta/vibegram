@@ -156,3 +156,18 @@ func TestPolicyDoneIsNoop(t *testing.T) {
 		t.Error("expected executor NOT to be called for done")
 	}
 }
+
+func TestPolicyBlockerResolvedIsNoop(t *testing.T) {
+	exec := &mockExecutor{}
+	engine := NewEngine(exec)
+	d, err := engine.Evaluate(context.Background(), makeSnap(0), makeEvent(events.EventTypeBlockerResolved))
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if d.Action != roles.ActionNoop {
+		t.Errorf("expected ActionNoop for blocker_resolved, got %v", d.Action)
+	}
+	if exec.called {
+		t.Error("expected executor NOT to be called for blocker_resolved")
+	}
+}

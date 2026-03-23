@@ -15,6 +15,7 @@ var rawTypeToEventType = map[string]EventType{
 	"tests_changed":    EventTypeTestsChanged,
 	"question":         EventTypeQuestion,
 	"blocked":          EventTypeBlocked,
+	"blocker_resolved": EventTypeBlockerResolved,
 	"approval_needed":  EventTypeApprovalNeeded,
 	"agent_reply_sent": EventTypeAgentReplySent,
 	"done":             EventTypeDone,

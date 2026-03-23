@@ -361,6 +361,85 @@ func TestRuntimeGeneralWizardLaunchRendersFilteredCodexEvents(t *testing.T) {
 	}
 }
 
+func TestRuntimeGeneralWizardLaunchRoutesBlockerResolvedToGeneralAndSession(t *testing.T) {
+	projectRoot := t.TempDir()
+	projectX := filepath.Join(projectRoot, "project-x")
+	if err := os.Mkdir(projectX, 0o755); err != nil {
+		t.Fatalf("Mkdir(project-x) error = %v", err)
+	}
+
+	store := state.NewStore(t.TempDir())
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := store.SaveSession(state.Session{
+		ID:             "ses_prior",
+		OwnerUserID:    1001,
+		GeneralTopicID: 1,
+		SessionTopicID: 42,
+		WorkRoot:       projectX,
+		Status:         state.SessionStatusDone,
+		Phase:          state.SessionPhaseWaiting,
+	}); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	bot := &fakeBotClient{nextThreadID: 42}
+	codex := &fakeCodexSessionRunner{
+		startResult: codexprovider.SessionResult{
+			ProviderSessionID: "thread-123",
+			Message:           "I resolved the blocker by adding the missing API token, and I can continue now.",
+			RawOutput: strings.Join([]string{
+				`{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"I resolved the blocker by adding the missing API token, and I can continue now."}}`,
+			}, "\n"),
+		},
+	}
+
+	rt := NewRuntime(
+		config.Config{
+			Telegram: config.TelegramConfig{
+				ForumChatID: -1001234567890,
+				AdminIDs:    []int64{1001},
+			},
+			Providers: config.ProviderConfig{
+				CodexCommand: "/usr/local/bin/codex",
+			},
+		},
+		store,
+		bot,
+		codex,
+		nil,
+		nil,
+		nil,
+	)
+
+	runGeneralWizardToTaskEntryPrompt(t, rt, bot, 1001)
+	sendTaskFromGeneral(t, rt, 1001, "finish setup")
+
+	wantText := "Blocker resolved: I resolved the blocker by adding the missing API token, and I can continue now."
+	waitForRuntime(t, func() bool { return hasSentText(bot.sentSnapshot(), wantText) }, "blocker resolved fanout")
+
+	var generalCount, sessionCount int
+	for _, msg := range bot.sentSnapshot() {
+		if msg.text != wantText {
+			continue
+		}
+		if msg.threadID == nil {
+			generalCount++
+			continue
+		}
+		if *msg.threadID == 42 {
+			sessionCount++
+		}
+	}
+	if generalCount != 1 {
+		t.Fatalf("general blocker resolved count = %d, want 1", generalCount)
+	}
+	if sessionCount != 1 {
+		t.Fatalf("session blocker resolved count = %d, want 1", sessionCount)
+	}
+}
+
 func TestRuntimeGeneralWizardLaunchStreamsFilteredCodexEventsBeforeProviderFinishes(t *testing.T) {
 	projectRoot := t.TempDir()
 	projectX := filepath.Join(projectRoot, "project-x")

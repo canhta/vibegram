@@ -33,6 +33,16 @@ func TestRenderBlocked(t *testing.T) {
 	}
 }
 
+func TestRenderBlockerResolved(t *testing.T) {
+	out := Render(ev(events.EventTypeBlockerResolved, "API token added; work can continue"))
+	if !strings.Contains(out, "Blocker resolved:") {
+		t.Errorf("expected 'Blocker resolved:' in output, got %q", out)
+	}
+	if !strings.Contains(out, "API token added; work can continue") {
+		t.Errorf("expected summary in output, got %q", out)
+	}
+}
+
 func TestRenderQuestion(t *testing.T) {
 	out := Render(ev(events.EventTypeQuestion, "which test framework?"))
 	if !strings.Contains(out, "Question:") {
